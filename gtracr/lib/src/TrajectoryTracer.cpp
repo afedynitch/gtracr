@@ -390,6 +390,15 @@ TrajectoryTracer::evaluate_and_get_trajectory(double &t0,
   std::vector<double> t_arr, r_arr, theta_arr, phi_arr, pr_arr, ptheta_arr,
       pphi_arr;
 
+  // pre-allocate to avoid repeated reallocation during push_back
+  t_arr.reserve(max_iter_);
+  r_arr.reserve(max_iter_);
+  theta_arr.reserve(max_iter_);
+  phi_arr.reserve(max_iter_);
+  pr_arr.reserve(max_iter_);
+  ptheta_arr.reserve(max_iter_);
+  pphi_arr.reserve(max_iter_);
+
   // start the loop
   for (int i = 0; i < max_iter_; ++i) {
     // append the values first

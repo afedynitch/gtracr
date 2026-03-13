@@ -4,7 +4,6 @@
 #include "igrf.hpp"              // IGRF model
 #include "pybind11/pybind11.h"
 #include "pybind11/stl.h"         // for STL container type conversions
-#include "uTrajectoryTracer.hpp"  // uTrajectoryTracer header file
 
 namespace py = pybind11;
 
@@ -12,7 +11,6 @@ PYBIND11_MODULE(_libgtracr, M) {
   /*
   Extension module for gtracr to C++.
   */
-  // M.def("Extension module for gtracr to C++.");
   py::class_<TrajectoryTracer>(M, "TrajectoryTracer",
                                py::module_local())  // TrajectoryTracer class
       .def(py::init<>())
@@ -33,31 +31,7 @@ PYBIND11_MODULE(_libgtracr, M) {
                              &TrajectoryTracer::final_sixvector)
       .def("evaluate", &TrajectoryTracer::evaluate)
       .def("evaluate_and_get_trajectory",
-           &TrajectoryTracer::evaluate_and_get_trajectory),
-
-      py::class_<uTrajectoryTracer>(
-          M, "uTrajectoryTracer",
-          py::module_local())  // TrajectoryTracer class unvectorized
-          .def(py::init<>())
-          .def(py::init<double, double, double, double,
-                        double, int, const char,
-                        const std::pair<std::string, double> &>())
-          .def_property_readonly("charge", &uTrajectoryTracer::charge)
-          .def_property_readonly("mass", &uTrajectoryTracer::mass)
-          .def_property_readonly("start_altitude", &uTrajectoryTracer::start_altitude)
-          .def_property_readonly("escape_radius",
-                                 &uTrajectoryTracer::escape_radius)
-          .def_property_readonly("step_size", &uTrajectoryTracer::stepsize)
-          .def_property_readonly("max_iter", &uTrajectoryTracer::max_iter)
-          .def_property_readonly("particle_escaped",
-                                 &uTrajectoryTracer::particle_escaped)
-          .def_property_readonly("final_time",
-                             &uTrajectoryTracer::final_time)
-          .def_property_readonly("final_sixvector",
-                             &uTrajectoryTracer::final_sixvector)
-          .def("evaluate", &uTrajectoryTracer::evaluate)
-          .def("evaluate_and_get_trajectory",
-               &uTrajectoryTracer::evaluate_and_get_trajectory),
+           &TrajectoryTracer::evaluate_and_get_trajectory);
 
      py::class_<MagneticField>(M, "MagneticField", py::module_local())  // Dipole Field class
           .def(py::init<>())

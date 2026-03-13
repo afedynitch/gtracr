@@ -4,6 +4,7 @@ import numpy as np
 from scipy.interpolate import griddata
 from tqdm import tqdm
 from datetime import date
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from gtracr.trajectory import Trajectory
 
@@ -11,11 +12,47 @@ CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
 
 
+def _evaluate_single_direction(args):
+    '''
+    Evaluate the cutoff rigidity for a single random (zenith, azimuth) direction.
+    Designed to run in a worker process (no shared state required).
+
+    Parameters
+    ----------
+    args : tuple
+        (location, plabel, bfield_type, date_str, palt, rigidity_list, dt, max_time, seed)
+
+    Returns
+    -------
+    (azimuth, zenith, rcutoff) or (azimuth, zenith, 0.0) if no cutoff found
+    '''
+    location, plabel, bfield_type, date_str, palt, rigidity_list, dt, max_time, seed = args
+    rng = np.random.default_rng(seed)
+    azimuth, zenith = rng.random(2) * np.array([360., 180.])
+
+    for rigidity in rigidity_list:
+        traj = Trajectory(
+            plabel=plabel,
+            location_name=location,
+            zenith_angle=zenith,
+            azimuth_angle=azimuth,
+            particle_altitude=palt,
+            rigidity=rigidity,
+            bfield_type=bfield_type,
+            date=date_str,
+        )
+        traj.get_trajectory(dt=dt, max_time=max_time)
+        if traj.particle_escaped:
+            return (azimuth, zenith, rigidity)
+
+    return (azimuth, zenith, 0.0)
+
+
 class GMRC():
     '''
     Evaluates the geomagnetic cutoff rigidities associated to a specific location on the globe for each zenith and azimuthal angle (a zenith angle > 90 degrees are for upward-moving particles, that is, for cosmic rays coming from the other side of Earth).
 
-    The cutoff rigidities are evaluated using a Monte-Carlo sampling scheme, combined with a 2-dimensional linear interpolation using `scipy.interpolate`. 
+    The cutoff rigidities are evaluated using a Monte-Carlo sampling scheme, combined with a 2-dimensional linear interpolation using `scipy.interpolate`.
 
     The resulting cutoffs can be plotted as 2-dimensional heatmap.
 
@@ -27,7 +64,7 @@ class GMRC():
     - particle_altitude : float
         The altitude in which the cosmic ray interacts with the atmosphere in km (default = 100).
     - iter_num : int
-        The number of iterations to perform for the Monte-Carlo sampling routine (default = 10000) 
+        The number of iterations to perform for the Monte-Carlo sampling routine (default = 10000)
     - bfield_type : str
         The type of magnetic field model to use for the evaluation of the cutoff rigidities (default = "igrf"). Set to "dipole" to use the dipole approximation of the geomagnetic field instead.
     - particle_type : str
@@ -40,6 +77,9 @@ class GMRC():
         The maximum rigidity to which we evaluate the cutoff rigidities for (default = 55 GV).
     - delta_rigidity : float
         The spacing between each rigidity (default = 5 GV). Sets the coarseness of the rigidity sample space.
+    - n_workers : int, optional
+        Number of parallel worker processes to use. Defaults to the number of CPU cores.
+        Set to 1 to disable parallelism (useful for debugging).
     '''
     def __init__(self,
                  location="Kamioka",
@@ -50,7 +90,8 @@ class GMRC():
                  date=str(date.today()),
                  min_rigidity=5.,
                  max_rigidity=55.,
-                 delta_rigidity=1.):
+                 delta_rigidity=1.,
+                 n_workers=None):
         # set class attributes
         self.location = location
         self.palt = particle_altitude
@@ -58,6 +99,7 @@ class GMRC():
         self.bfield_type = bfield_type
         self.plabel = particle_type
         self.date = date
+        self.n_workers = n_workers  # None = use all CPU cores
         '''
         Rigidity configurations
         '''
@@ -69,10 +111,6 @@ class GMRC():
         self.rigidity_list = np.arange(self.rmin, self.rmax, self.rdelta)
 
         # initialize container for rigidity cutoffs
-        # # along with the zenith and azimuthal arrays
-        # self.azimuth_arr = np.zeros(self.iter_num)
-        # self.zenith_arr = np.zeros(self.iter_num)
-        # self.rcutoff_arr = np.zeros(self.iter_num)
         self.data_dict = {
             "azimuth": np.zeros(self.iter_num),
             "zenith": np.zeros(self.iter_num),
@@ -84,6 +122,9 @@ class GMRC():
         Evaluate the rigidity cutoff value at some provided location
         on Earth for a given cosmic ray particle.
 
+        Uses parallel worker processes (one per CPU core by default) to
+        evaluate independent Monte Carlo samples concurrently.
+
         Parameters
         ----------
 
@@ -93,41 +134,47 @@ class GMRC():
             The maximal time of each trajectory evaluation (default = 1.).
 
         '''
+        rigidity_list = list(self.rigidity_list)
 
-        # perform Monte Carlo integration to get cutoff rigidity
-        for i in tqdm(range(self.iter_num)):
-            # get a random zenith and azimuth angle
-            # zenith angles range from 0 to 180
-            # azimuth angles range from 0 to 360
-            [azimuth, zenith] = np.random.rand(2)
-            azimuth *= 360.
-            zenith *= 180.
+        # Build argument list for each MC sample, using distinct random seeds
+        # for reproducibility across different worker processes
+        rng = np.random.default_rng()
+        seeds = rng.integers(0, 2**31, size=self.iter_num)
 
-            # iterate through each rigidity, and break the loop
-            # when particle is able to escape earth
-            for rigidity in self.rigidity_list:
+        args_list = [
+            (self.location, self.plabel, self.bfield_type, self.date,
+             self.palt, rigidity_list, dt, max_time, int(seeds[i]))
+            for i in range(self.iter_num)
+        ]
 
-                traj = Trajectory(plabel=self.plabel,
-                                  location_name=self.location,
-                                  zenith_angle=zenith,
-                                  azimuth_angle=azimuth,
-                                  particle_altitude=100.,
-                                  rigidity=rigidity,
-                                  bfield_type=self.bfield_type,
-                                  date=self.date)
+        n_workers = self.n_workers
+        use_parallel = (n_workers is None or n_workers > 1)
 
-                traj.get_trajectory(dt=dt, max_time=max_time)
-                # break loop and append direction and current rigidity if particle has escaped
+        if use_parallel:
+            # Parallel evaluation: each worker process evaluates one MC sample
+            results = []
+            with ProcessPoolExecutor(max_workers=n_workers) as executor:
+                future_to_idx = {
+                    executor.submit(_evaluate_single_direction, args): i
+                    for i, args in enumerate(args_list)
+                }
+                for future in tqdm(as_completed(future_to_idx),
+                                   total=self.iter_num,
+                                   desc="GMRC evaluation"):
+                    i = future_to_idx[future]
+                    results.append((i, future.result()))
 
-                if traj.particle_escaped == True:
-                    # self.azimuth_arr[i] = azimuth
-                    # self.zenith_arr[i] = zenith
-                    # self.rcutoff_arr[i] = rigidity
-                    self.data_dict["azimuth"][i] = azimuth
-                    self.data_dict["zenith"][i] = zenith
-                    self.data_dict["rcutoff"][i] = rigidity
-                    # self.rcutoff_arr.append((azimuth, zenith, rig))
-                    break
+            for i, (az, zen, rc) in results:
+                self.data_dict["azimuth"][i] = az
+                self.data_dict["zenith"][i] = zen
+                self.data_dict["rcutoff"][i] = rc
+        else:
+            # Sequential fallback (n_workers=1), useful for debugging
+            for i in tqdm(range(self.iter_num)):
+                az, zen, rc = _evaluate_single_direction(args_list[i])
+                self.data_dict["azimuth"][i] = az
+                self.data_dict["zenith"][i] = zen
+                self.data_dict["rcutoff"][i] = rc
 
     def interpolate_results(self,
                             method="linear",

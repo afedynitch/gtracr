@@ -3,7 +3,7 @@ import sys
 import numpy as np
 import pickle
 from datetime import date
-from gtracr.lib._libgtracr import TrajectoryTracer, uTrajectoryTracer
+from gtracr.lib._libgtracr import TrajectoryTracer
 from gtracr.lib.trajectory_tracer import pTrajectoryTracer
 from gtracr.utils import particle_dict, location_dict, ymd_to_dec
 from gtracr.lib.constants import EARTH_RADIUS, DEG_PER_RAD, ELEMENTARY_CHARGE, KG_PER_GEVC2, RAD_PER_DEG, KG_M_S_PER_GEVC, ELEMENTARY_CHARGE
@@ -141,8 +141,7 @@ class Trajectory:
                        max_time=1,
                        max_step=None,
                        get_data=False,
-                       use_python=False,
-                       use_unvectorized=False):
+                       use_python=False):
         '''
         Evaluate the trajectory of the particle within Earth's magnetic field
         and determines whether particle has escaped or not.
@@ -164,10 +163,7 @@ class Trajectory:
             for the whole trajectory for e.g. debugging purposes (default: False)
         use_python : bool, optional
             decides whether to use the python implementation for the TrajectoryTracer class instead of
-            that implemented in C++. This is mainly enabled for debugging purposes (default: False)
-        use_unvectorized : bool, optional
-            decides whether to evaluate the Runge Kutta integration in the C++ version in its
-            unvectorized or vectorized form. This is mainly enabled for debugging purposes (default: False)
+            that implemented in C++. This is mainly enabled for debugging/testing purposes (default: False)
 
         Returns
         ---------
@@ -184,32 +180,23 @@ class Trajectory:
         max_step = int(np.ceil(max_time /
                                dt)) if max_step is None else max_step
 
-        # raise issues if both use python and use unvectorized form is True
-        if use_python and use_unvectorized:
-            raise Exception("Unvectorized Python version does not exist!")
-
         # start iteration process
 
-        self.charge *= ELEMENTARY_CHARGE
-        self.mass *= KG_PER_GEVC2
+        # Convert to SI units using local variables (not mutating object state,
+        # so get_trajectory() can be called multiple times safely)
+        charge_si = self.charge * ELEMENTARY_CHARGE
+        mass_si = self.mass * KG_PER_GEVC2
 
         # initialize trajectory tracer
         if use_python:
-            # the python trajectory tracer version
-            traj_tracer = pTrajectoryTracer(self.charge, self.mass,
-                                            self.start_alt, self.esc_alt, dt,
-                                            max_step, self.bfield_type,
-                                            self.igrf_params)
-        elif use_unvectorized:
-            # the unvectorized trajectory tracer version
-            # error prone, possible memory leaks so better not to use it
-            traj_tracer = uTrajectoryTracer(self.charge, self.mass,
+            # the python trajectory tracer version (for testing/debugging only)
+            traj_tracer = pTrajectoryTracer(charge_si, mass_si,
                                             self.start_alt, self.esc_alt, dt,
                                             max_step, self.bfield_type,
                                             self.igrf_params)
         else:
-            # the vectorized trajectory tracer version
-            traj_tracer = TrajectoryTracer(self.charge, self.mass,
+            # the C++ vectorized trajectory tracer (primary implementation)
+            traj_tracer = TrajectoryTracer(charge_si, mass_si,
                                            self.start_alt, self.esc_alt, dt,
                                            max_step, self.bfield_type,
                                            self.igrf_params)

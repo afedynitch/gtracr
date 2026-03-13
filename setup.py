@@ -17,7 +17,6 @@ local_path = os.path.dirname(os.path.abspath(__file__))
 libgtracr = Extension('gtracr.lib._libgtracr',
                       sources=[
                           "gtracr/lib/src/TrajectoryTracer.cpp",
-                          "gtracr/lib/src/uTrajectoryTracer.cpp",
                           "gtracr/lib/src/igrf.cpp",
                           "gtracr/lib/src/pybind11_wrapper.cpp"
                       ],
@@ -43,6 +42,10 @@ compiler_opts = {
     UnixCCompiler: {
         "extra_compile_args": [
             "-std=c++11",
+            "-O3",                        # full optimization
+            "-march=native",              # target current CPU (SIMD, etc.)
+            "-ffast-math",                # aggressive FP optimizations
+            "-funroll-loops",             # unroll small inner loops
             "-Wno-shorten-64-to-32",
             "-Wno-parentheses",
             "-Wno-unused-variable",
@@ -53,7 +56,7 @@ compiler_opts = {
         + extra_flags,
         "extra_link_args": extra_flags,
     },
-    MSVCCompiler: {"extra_compile_args": ["/EHsc"]},
+    MSVCCompiler: {"extra_compile_args": ["/EHsc", "/O2"]},
 }
 
 
