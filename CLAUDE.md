@@ -20,17 +20,18 @@ finds the minimum rigidity that allows the particle to escape Earth's magnetic f
 ## Build
 
 The C++ core is compiled as a Python extension module (`_libgtracr`) via pybind11.
+The build system uses **meson-python** (PEP-517) with pybind11 v3.0.2 as a git submodule.
 
 ```bash
-# Install in editable mode (builds C++ extension)
-pip install -e .
+# Initialize submodule after clone
+git submodule update --init
 
-# Or build the extension directly
-python setup.py build_ext --inplace
+# Install in editable mode (triggers meson build)
+pip install -e . --no-build-isolation
 ```
 
-**Requirements**: Python ≥ 3.6, a C++11 compiler (GCC, Clang, MSVC), and the packages in
-`requirements.txt` (numpy, scipy, tqdm).
+**Requirements**: Python ≥ 3.6, a C++11 compiler (GCC, Clang, MSVC), meson ≥ 1.1, ninja,
+and the packages in `requirements.txt` (numpy, scipy, tqdm).
 
 ---
 
@@ -140,48 +141,19 @@ az_grid, zen_grid, cutoff_grid = gmrc.interpolate_results()
 
 ## Known Issues and Technical Debt
 
-### FIXED: IGRF::values() Coordinate Transformation Bug (`igrf.cpp:631-634`)
-
-**What was wrong:** `IGRF::values()` returned `(|B|, acos(Bz/|B|), atan2(By,Bx))` — the total
-field magnitude and two angles — instead of the correct spherical field components `(Br, Bθ, Bφ)`.
-The `shval3()` function fills `bfield_.x/y/z` in NED (North-East-Down) convention. The correct
-transformation to geocentric spherical components is:
-
-```
-Br     = -bfield_.z   (outward is opposite to "down")
-Btheta = -bfield_.x   (theta increases southward, opposite to north)
-Bphi   =  bfield_.y   (phi increases eastward, same as east)
-```
-
-**Impact:** All IGRF-mode trajectory results were physically incorrect. The magnetic field
-components used in the Lorentz force were angles (O(1) radians) instead of field strengths
-(O(10⁻⁵) Tesla), making the forces orders of magnitude wrong. The dipole mode was unaffected.
-
-**Status:** **Fixed** in `igrf.cpp`. All IGRF trajectory tests (`test_trajectories_igrf`,
-`test_trajectories_stepsize`, `test_trajectories_maxtimes`, `test_trajectories_dates`) are
-marked `xfail` and need to be regenerated with the corrected implementation.
-
-**To regenerate test values:** Build the extension (`pip install -e .`), run
-`pytest -v gtracr/tests/test_trajectories.py -k "igrf"`, capture the actual `traj.final_time`
-values for each case, and update the `expected_times` lists. Cross-validate key cases against the
-Python `IGRF13` reference implementation in `gtracr/lib/magnetic_field.py` via `use_python=True`.
-
----
-
-### FIXED: Unit Conversion Mutation in `get_trajectory()`
-`Trajectory.get_trajectory()` previously mutated `self.charge` and `self.mass` in-place.
-Now uses local SI-unit variables; calling `get_trajectory()` multiple times is safe.
-
-### FIXED: uTrajectoryTracer Removed
-Removed the scalar C++ `uTrajectoryTracer` class which was a debug artifact with critical bugs
-(6× redundant IGRF field calls per ODE evaluation, incorrect position scaling by relativistic mass).
-
 ### `pTrajectoryTracer` (Python) — Testing Only
 The Python `pTrajectoryTracer` in `gtracr/lib/trajectory_tracer.py` is a slow (~100×) reference
 implementation for debugging. It also has a minor escape condition bug:
 `if r > EARTH_RADIUS + self.escape_radius` should be `if r > self.escape_radius` (since
 `escape_radius` is already an absolute radius, not an altitude). This matters when comparing
 Python vs. C++ results.
+
+### Horizontal trajectories at the equator terminate immediately
+For `zenith_angle=90` (horizontal) at equatorial latitudes, the Lorentz force pushes the
+back-traced proton radially inward in the first RK4 step, immediately triggering the atmosphere
+termination condition. This is physically correct (East-West geomagnetic asymmetry), but
+means such trajectories are useless for visualization. Use mid-latitude locations (e.g.
+`location_name="Kamioka"`) with `azimuth_angle=0` for horizontal trajectories.
 
 ---
 
@@ -197,25 +169,20 @@ Python vs. C++ results.
 |---|-----------|----------|--------|--------|
 | 1 | IGRF object reconstructed per trajectory | `geomagnetic_cutoffs.py` | Open | Very High |
 | 2 | Sequential MC loop, no parallelism | `geomagnetic_cutoffs.py` | **Fixed** (ProcessPoolExecutor) | Very High |
-| 3 | IGRF::values() wrong coordinate transform | `igrf.cpp:631-634` | **Fixed** | Correctness |
-| 4 | No `-O3`/`-march=native` compiler flags | `setup.py` | **Fixed** | Medium-High |
-| 5 | No `reserve()` in vector push_back loop | `TrajectoryTracer.cpp` | **Fixed** | Medium |
-| 6 | IGRF Legendre evaluation per RK step (4×) | `igrf.cpp:shval3` | Open | Medium |
-| 7 | `uTrajectoryTracer` 6× redundant IGRF calls | `uTrajectoryTracer.cpp` | **Removed** | High |
-| 7 | 7 separate std::vector allocations for trajectory | `TrajectoryTracer.cpp:390` | Low |
+| 3 | IGRF Legendre evaluation per RK step (4×) | `igrf.cpp:shval3` | Open | Medium |
+| 4 | 7 separate std::vector allocations for trajectory | `TrajectoryTracer.cpp:390` | Open | Low |
 
 ### Improvement Roadmap
 
 **Quick wins (days):**
-- Add `-O3 -march=native -ffast-math` to `setup.py` → 2–4× speedup
-- Add `reserve(max_iter_)` in `evaluate_and_get_trajectory` → eliminates reallocation overhead
-- Add `multiprocessing.Pool` to GMRC → N× speedup on N CPU cores
+- Cache IGRF `TrajectoryTracer` instance across same-date trajectories in `GMRC` — avoids
+  reconstructing the IGRF object (and reloading `igrf13.json`) for every trajectory
 
 **Medium-term (weeks):**
-- Cache IGRF `TrajectoryTracer` instance across same-date trajectories
-- Precompute a 3D B-field grid (r, θ, φ) → 10–30× speedup on field evaluation
-- Remove `uTrajectoryTracer` (dead code, bugged)
-- Implement [Boris integrator](https://en.wikipedia.org/wiki/Boris_method) (1 B-eval/step vs 4 for RK4, better energy conservation)
+- Precompute a 3D B-field grid (r, θ, φ) → 10–30× speedup on field evaluation; eliminates
+  the recursive Legendre polynomial evaluation (4× per RK4 step) with trilinear interpolation
+- Implement [Boris integrator](https://en.wikipedia.org/wiki/Boris_method) (1 B-eval/step vs 4
+  for RK4, better energy conservation)
 - Implement adaptive RK45 (Dormand-Prince) for fewer total steps
 
 **Long-term (GPU, months):**
