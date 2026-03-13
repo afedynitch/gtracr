@@ -18,3 +18,15 @@ dev = ['pytest', 'pytest-cov']
 
 [project.urls]
 Homepage = 'https://github.com/kwat0308/gtracr'
+
+[tool.pytest.ini_options]
+addopts = "--cov=gtracr --cov-report=term-missing --cov-config=.coveragerc"
+
+[tool.coverage.run]
+omit = [
+    "gtracr/plotting.py",
+    "gtracr/scripts/*",
+    "gtracr/legacy/*",
+    "gtracr/version.py",
+    "gtracr/lib/igrf_utils.py",
+]
