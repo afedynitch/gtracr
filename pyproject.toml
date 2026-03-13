@@ -1,0 +1,20 @@
+[build-system]
+build-backend = 'mesonpy'
+requires = ['meson-python>=0.16', 'meson>=1.1', 'ninja']
+
+[project]
+name = 'gtracr'
+version = '1.0.0'
+description = 'A simulation that tracks cosmic rays from any location on Earth.'
+authors = [{name = 'Keito Watanabe', email = 'k.wat8973@gmail.com'}]
+license = {text = 'BSD 3-Clause License'}
+readme = 'README.md'
+requires-python = '>=3.6'
+dependencies = ['numpy', 'scipy', 'tqdm']
+
+[project.optional-dependencies]
+examples = ['matplotlib', 'plotly']
+dev = ['pytest', 'pytest-cov']
+
+[project.urls]
+Homepage = 'https://github.com/kwat0308/gtracr'

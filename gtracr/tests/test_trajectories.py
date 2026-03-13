@@ -65,21 +65,9 @@ def test_trajectories_dipole():
         assert np.allclose(traj.final_time, expected_times[iexp])
 
 
-@pytest.mark.xfail(reason=(
-    "Expected values must be regenerated after fixing IGRF::values() "
-    "coordinate transformation. The old values were computed with a buggy "
-    "implementation that returned (|B|, acos(Bz/|B|), atan2(By,Bx)) instead "
-    "of the correct spherical components (Br=-Bdown, Btheta=-Bnorth, "
-    "Bphi=Beast). Run this test after rebuilding and replace expected_times "
-    "with the output of traj.final_time for each case."
-))
 def test_trajectories_igrf():
     '''
     Test the final times of the trajectory evaluation in the IGRF field.
-
-    NOTE: Expected values below are stale and will be regenerated once the
-    IGRF::values() coordinate fix is validated against the Python IGRF13
-    reference implementation in gtracr/lib/magnetic_field.py.
     '''
 
     expected_times = [
@@ -113,7 +101,6 @@ def test_trajectories_igrf():
         assert np.allclose(traj.final_time, expected_times[iexp])
 
 
-@pytest.mark.xfail(reason="Expected values stale after IGRF::values() coordinate fix; regenerate after rebuild.")
 def test_trajectories_stepsize():
     '''
     Test the final times of the trajectory evaluation in the igrf field for
@@ -150,7 +137,6 @@ def test_trajectories_stepsize():
         assert np.allclose(traj.final_time, expected_times[iexp])
 
 
-@pytest.mark.xfail(reason="Expected values stale after IGRF::values() coordinate fix; regenerate after rebuild.")
 def test_trajectories_maxtimes():
     '''
     Test the final times of the trajectory evaluation in the igrf field for
@@ -189,7 +175,6 @@ def test_trajectories_maxtimes():
 
 
 
-@pytest.mark.xfail(reason="Expected values stale after IGRF::values() coordinate fix; regenerate after rebuild.")
 def test_trajectories_dates():
     '''
     Test the final times of the trajectory evaluation in the igrf field for

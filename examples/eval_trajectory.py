@@ -97,8 +97,7 @@ def get_trajectory():
                                         max_time=max_time,
                                         get_data=True,
                                         max_step=max_step,
-                                        use_python=False,
-                                        use_unvectorized=False)
+                                        use_python=False)
 
     # convert lat, long in decimal notation to dms
     lat_dms, lng_dms = dec_to_dms(lat, lng)

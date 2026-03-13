@@ -75,8 +75,7 @@ def get_evaltime(iter_num,
         start_time = time.perf_counter()
         trajectory.get_trajectory(dt=dt,
                                   max_step=max_step,
-                                  use_python=use_python,
-                                  use_unvectorized=use_unvec)
+                                  use_python=use_python)
         stop_time = time.perf_counter()
         eval_time += stop_time - start_time
 
@@ -140,12 +139,12 @@ def get_evaltime_data(iternum_list):
         #                                                 use_python=True)
 
         # c++, dipole, scalar form
-        avg_evaltime_dict["cppdip_vec"]["values"][i] = get_evaltime(
-            iter_num, initial_variables, bfield_type="dipole", use_unvec=True)
+        # avg_evaltime_dict["cppdip_vec"]["values"][i] = get_evaltime(
+        #     iter_num, initial_variables, bfield_type="dipole", use_unvec=True)
 
-        # C++, igrf, scalar form
-        avg_evaltime_dict["cppigrf_novec"]["values"][i] = get_evaltime(
-            iter_num, initial_variables, bfield_type="igrf", use_unvec=True)
+        # # C++, igrf, scalar form
+        # avg_evaltime_dict["cppigrf_novec"]["values"][i] = get_evaltime(
+        #     iter_num, initial_variables, bfield_type="igrf", use_unvec=True)
 
         # C++, dipole, vector form
         avg_evaltime_dict["cppdip_vec"]["values"][i] = get_evaltime(
@@ -173,7 +172,7 @@ def plot_benchmarks(benchmark_data, iternum_list):
 
     for i, (code_type, avg_evaltime_dict) in enumerate(
             sorted(list(benchmark_data.items()))):
-        ax.semilogx(iternum_list,
+        ax.loglog(iternum_list,
                     avg_evaltime_dict["values"],
                     label=avg_evaltime_dict["label"],
                     color=color_arr[i],
@@ -198,7 +197,7 @@ if __name__ == "__main__":
     plabel, zenith, azimuth, part_alt, lat, lng, dec_alt, rig = initial_variables
 
     # integration parameters
-    iternum_list = np.arange(1, 10000, 500)  # number of iterations
+    iternum_list = np.logspace(0, np.log10(3000), 10)  # number of iterations
     # iternum_list = [10, 100]
 
     reset = True  # parameter to reset benchmark data
