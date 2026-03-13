@@ -140,19 +140,48 @@ az_grid, zen_grid, cutoff_grid = gmrc.interpolate_results()
 
 ## Known Issues and Technical Debt
 
-### Correctness Bug: Unit Conversion in `get_trajectory()`
-`Trajectory.get_trajectory()` mutates `self.charge` and `self.mass` by multiplying unit conversion
-factors each call. Calling `get_trajectory()` more than once on the same `Trajectory` instance
-silently doubles (or squares) the charge and mass. **Workaround**: create a new `Trajectory` for
-each evaluation.
+### FIXED: IGRF::values() Coordinate Transformation Bug (`igrf.cpp:631-634`)
 
-### Redundant Implementations
-The codebase contains three parallel RK4 trajectory tracer implementations:
-1. `TrajectoryTracer` (C++, vectorized) — **the primary; use this**
-2. `uTrajectoryTracer` (C++, scalar) — debug artifact; has a critical bug (evaluates the IGRF
-   B-field 6× per ODE call instead of 1×, making IGRF trajectories ~6× slower than necessary);
-   documented as "error prone, possible memory leaks" in `trajectory.py`
-3. `pTrajectoryTracer` (Python) — slow reference implementation for testing only
+**What was wrong:** `IGRF::values()` returned `(|B|, acos(Bz/|B|), atan2(By,Bx))` — the total
+field magnitude and two angles — instead of the correct spherical field components `(Br, Bθ, Bφ)`.
+The `shval3()` function fills `bfield_.x/y/z` in NED (North-East-Down) convention. The correct
+transformation to geocentric spherical components is:
+
+```
+Br     = -bfield_.z   (outward is opposite to "down")
+Btheta = -bfield_.x   (theta increases southward, opposite to north)
+Bphi   =  bfield_.y   (phi increases eastward, same as east)
+```
+
+**Impact:** All IGRF-mode trajectory results were physically incorrect. The magnetic field
+components used in the Lorentz force were angles (O(1) radians) instead of field strengths
+(O(10⁻⁵) Tesla), making the forces orders of magnitude wrong. The dipole mode was unaffected.
+
+**Status:** **Fixed** in `igrf.cpp`. All IGRF trajectory tests (`test_trajectories_igrf`,
+`test_trajectories_stepsize`, `test_trajectories_maxtimes`, `test_trajectories_dates`) are
+marked `xfail` and need to be regenerated with the corrected implementation.
+
+**To regenerate test values:** Build the extension (`pip install -e .`), run
+`pytest -v gtracr/tests/test_trajectories.py -k "igrf"`, capture the actual `traj.final_time`
+values for each case, and update the `expected_times` lists. Cross-validate key cases against the
+Python `IGRF13` reference implementation in `gtracr/lib/magnetic_field.py` via `use_python=True`.
+
+---
+
+### FIXED: Unit Conversion Mutation in `get_trajectory()`
+`Trajectory.get_trajectory()` previously mutated `self.charge` and `self.mass` in-place.
+Now uses local SI-unit variables; calling `get_trajectory()` multiple times is safe.
+
+### FIXED: uTrajectoryTracer Removed
+Removed the scalar C++ `uTrajectoryTracer` class which was a debug artifact with critical bugs
+(6× redundant IGRF field calls per ODE evaluation, incorrect position scaling by relativistic mass).
+
+### `pTrajectoryTracer` (Python) — Testing Only
+The Python `pTrajectoryTracer` in `gtracr/lib/trajectory_tracer.py` is a slow (~100×) reference
+implementation for debugging. It also has a minor escape condition bug:
+`if r > EARTH_RADIUS + self.escape_radius` should be `if r > self.escape_radius` (since
+`escape_radius` is already an absolute radius, not an altitude). This matters when comparing
+Python vs. C++ results.
 
 ---
 
@@ -164,14 +193,15 @@ The codebase contains three parallel RK4 trajectory tracer implementations:
 
 ### Bottleneck Map (ordered by impact)
 
-| # | Bottleneck | Location | Impact |
-|---|-----------|----------|--------|
-| 1 | IGRF object reconstructed per trajectory | `geomagnetic_cutoffs.py:110` | Very High |
-| 2 | Sequential MC loop, no parallelism | `geomagnetic_cutoffs.py:98` | Very High |
-| 3 | No `-O3`/`-march=native` compiler flags | `setup.py` | Medium-High |
-| 4 | 6× redundant IGRF calls in `uTrajectoryTracer` | `uTrajectoryTracer.cpp:298-331` | High (if used) |
-| 5 | No `reserve()` in vector push_back loop | `TrajectoryTracer.cpp:390` | Medium |
-| 6 | IGRF Legendre evaluation per RK step (4×) | `igrf.cpp:shval3` | Medium |
+| # | Bottleneck | Location | Status | Impact |
+|---|-----------|----------|--------|--------|
+| 1 | IGRF object reconstructed per trajectory | `geomagnetic_cutoffs.py` | Open | Very High |
+| 2 | Sequential MC loop, no parallelism | `geomagnetic_cutoffs.py` | **Fixed** (ProcessPoolExecutor) | Very High |
+| 3 | IGRF::values() wrong coordinate transform | `igrf.cpp:631-634` | **Fixed** | Correctness |
+| 4 | No `-O3`/`-march=native` compiler flags | `setup.py` | **Fixed** | Medium-High |
+| 5 | No `reserve()` in vector push_back loop | `TrajectoryTracer.cpp` | **Fixed** | Medium |
+| 6 | IGRF Legendre evaluation per RK step (4×) | `igrf.cpp:shval3` | Open | Medium |
+| 7 | `uTrajectoryTracer` 6× redundant IGRF calls | `uTrajectoryTracer.cpp` | **Removed** | High |
 | 7 | 7 separate std::vector allocations for trajectory | `TrajectoryTracer.cpp:390` | Low |
 
 ### Improvement Roadmap

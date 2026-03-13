@@ -625,13 +625,24 @@ std::array<double, 3> IGRF::values(const double& r, const double& theta,
   // igdgc = 2 for geocentric, which is what we want
   shval3(2, lat, lng, elev, gh);
 
-  // transform bfield results to spherical coordinates
+  // Transform the NED (North-East-Down) Cartesian field components returned by
+  // shval3() into geocentric spherical components (Br, Btheta, Bphi).
+  //
+  // shval3 with igdgc=2 (geocentric) fills:
+  //   bfield_.x = northward component  (B_N)
+  //   bfield_.y = eastward component   (B_E)
+  //   bfield_.z = vertically-downward  (B_D)
+  //
+  // In geocentric spherical coordinates (r outward, theta = colatitude,
+  // phi = longitude eastward):
+  //   B_r     = -B_D   (outward is opposite to "down")
+  //   B_theta = -B_N   (theta increases southward, opposite to north)
+  //   B_phi   =  B_E   (phi increases eastward, same direction)
   std::array<double, 3> values;
 
-  values[0] = sqrt((bfield_.x * bfield_.x) + (bfield_.y * bfield_.y) +
-                   (bfield_.z * bfield_.z));
-  values[1] = acos(bfield_.z / values[0]);
-  values[2] = atan2(bfield_.y, bfield_.x);
+  values[0] = -bfield_.z;   // Br     = -B_down
+  values[1] = -bfield_.x;   // Btheta = -B_north
+  values[2] =  bfield_.y;   // Bphi   =  B_east
 
   // std::cout << "Finished evaluating bfield values." << std::endl;
 
