@@ -218,6 +218,25 @@ Lorentz force equation
   */
   void evaluate(const double &t0, std::array<double, 6> &vec0);
 
+  /*
+  Resets the tracer state so the same TrajectoryTracer instance can be reused
+  for a new trajectory without reconstructing the (potentially expensive) field
+  model.  Must be called between successive evaluate() calls when reusing an
+  instance.
+  */
+  void reset();
+
+  /*
+  Update the starting altitude used in the atmosphere-termination condition.
+  This is needed when a single cached TrajectoryTracer is shared across
+  directions that have different starting altitudes (e.g. zenith > 90°).
+
+  Parameters
+  ----------
+  - alt (double) : new starting altitude in metres
+  */
+  void set_start_altitude(double alt);
+
   /* Evaluates the trajectory of the particle using a 4th-order Runge Kutta
   algorithm and return a map that contains the information of the particle
   trajectory. This will most often be used for debugging purposes to see the

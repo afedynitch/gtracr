@@ -31,7 +31,14 @@ PYBIND11_MODULE(_libgtracr, M) {
                              &TrajectoryTracer::final_sixvector)
       .def("evaluate", &TrajectoryTracer::evaluate)
       .def("evaluate_and_get_trajectory",
-           &TrajectoryTracer::evaluate_and_get_trajectory);
+           &TrajectoryTracer::evaluate_and_get_trajectory)
+      .def("reset", &TrajectoryTracer::reset,
+           "Reset particle_escaped and final_time so the tracer can be reused "
+           "for a new trajectory without reconstructing the field model.")
+      .def("set_start_altitude", &TrajectoryTracer::set_start_altitude,
+           py::arg("alt"),
+           "Update the starting altitude (metres) used in the atmosphere-"
+           "termination condition.");
 
      py::class_<MagneticField>(M, "MagneticField", py::module_local())  // Dipole Field class
           .def(py::init<>())

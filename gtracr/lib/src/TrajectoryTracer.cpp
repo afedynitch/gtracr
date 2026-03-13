@@ -468,6 +468,21 @@ Returns
 - gamma (const double) :
       The lorentz factor for the particular momentum
 */
+/* Resets the tracer state so the same instance can be reused for a new
+   trajectory without reconstructing the (potentially expensive) field model. */
+void TrajectoryTracer::reset() {
+  particle_escaped_ = false;
+  final_time_ = 0.;
+  final_sixvector_ = {};
+}
+
+/* Updates the starting altitude used in the atmosphere-termination condition.
+   Required when caching a single TrajectoryTracer across directions that have
+   different starting altitudes (e.g. zenith > 90°). */
+void TrajectoryTracer::set_start_altitude(double alt) {
+  start_altitude_ = alt;
+}
+
 inline double TrajectoryTracer::lorentz_factor(const double &pr,
                                                const double &ptheta,
                                                const double &pphi) {
