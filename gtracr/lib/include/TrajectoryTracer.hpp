@@ -10,6 +10,7 @@ by performing a 4th-order Runge Kutta numerical integration algorithm.
 #include <functional>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -17,244 +18,116 @@ by performing a 4th-order Runge Kutta numerical integration algorithm.
 #include "MagneticField.hpp"
 #include "constants.hpp"
 #include "igrf.hpp"
+#include "igrf_table.hpp"
 
 class TrajectoryTracer {
-  /*
-Trajectory Tracer class that traces the trajectory of the particle
-by performing a 4th-order Runge Kutta numerical integration algorithm.
-
-Class Members
---------------
-  - bfield_ (MagneticField instance):
-      The MagneticField object that contains the information pertaining the
-      Earth's magnetic field model (default is dipole model).
-  - charge_ (double) :
-      The charge of the particle in units of Coulombs (default 1.602e-19 C, i.e.
-  1e).
-  - mass_ (double) :
-      The (rest) mass of the particle in units of kilograms
-  (default 1.672e-27 kg, i.e. proton mass).
-  - escape_radius_ (double) :
-      The radial distance relative to Earth's center in which the particle is
-      set to have "escaped" Earth, i.e. a valid cosmic ray coming from some
-      astrophysical source. Units are in kilometers (default 10*Earth's radius)
-  - stepsize_ (double) :
-      The stepsize for the integration process (default 1e-5)
-  - max_iter_ (int) :
-      The maximum number of iterations performed for the integration process
-      (default 10000)
-  - particle_escaped_ (bool) :
-      True if particle has effectively "escaped" from Earth (i.e. when the
-      radial component of the trajectory > escape_radius_) (default false).
-*/
  private:
-  MagneticField bfield_;  // the magnetic field
-  double charge_;         // charge of the particle in coulumbs
-  double mass_;           // mass of the particle in kg
-  double start_altitude_;   // starting altitude of particle
-  double escape_radius_;  // radius in which we set for particle to escape
-  double stepsize_;       // step size
-  int max_iter_;          // maximum step size
-  // binary value to store if particle has escaped or not
-  bool particle_escaped_;
+  // B-field dispatch: 'd' = dipole, 'i' = IGRF direct, 't' = IGRF table
+  char bfield_type_;
+  MagneticField dipole_;                // always valid (trivial ctor)
+  std::unique_ptr<IGRF> igrf_;          // non-null for 'i' and 't'
+  std::vector<float> table_;            // non-empty for 't'
+  TableParams table_params_;            // valid for 't'
 
-  double final_time_;  // the final time of the trajectory
-  std::array<double, 6>
-      final_sixvector_;  // the final six-vector of the trajectory
+  // Evaluate B-field at (r, theta, phi) using the active field model.
+  std::array<double, 3> bfield_at(double r, double theta, double phi);
 
-  // SixVector objects to store each RK parameter
-//   SixVector k1_vec;
-//   SixVector k2_vec;
-//   SixVector k3_vec;
-//   SixVector k4_vec;
-//   SixVector k_vec;
+  double charge_;             // charge of the particle in coulombs
+  double mass_;               // mass of the particle in kg
+  double start_altitude_;     // starting altitude of particle
+  double escape_radius_;      // radius in which we set for particle to escape
+  double stepsize_;           // step size
+  int max_iter_;              // maximum number of steps
+  bool particle_escaped_;     // true if particle has escaped
 
+  char solver_type_;          // 'r' = RK4 (frozen-field), 'b' = Boris, 'a' = adaptive RK45
+  double atol_;               // absolute tolerance (RK45 only)
+  double rtol_;               // relative tolerance (RK45 only)
+  int nsteps_;                // number of accepted integration steps taken
 
+  double final_time_;
+  std::array<double, 6> final_sixvector_;
 
-  /* The ordinary differential equations that describes the motion
-of charge particles in Earth's magnetic field via the Lorentz force
-in spherical coordinates.
-
-Parameters
------------
-- t (double) :
-    the time
-- vec (std::array<double, 6>) :
-     the six-vector (r, theta, phi, pr, ptheta, pphi) at time t
-
-Returns
---------
-- ode_lrz (std::array<double, 6>) :
-     the ordinary differential equation for the six vector based on the
-Lorentz force equation
-*/
-  std::array<double, 6> ode_lrz(const double t, const std::array<double, 6> &vec);
-
-  // ode_lrz variant that accepts a pre-evaluated B-field (avoids a second
-  // bfield_.values() call when the field is frozen across RK4 sub-steps).
+  // ODE right-hand side using a pre-evaluated B-field (frozen-field approximation).
   std::array<double, 6> ode_lrz_bf(const double t,
                                     const std::array<double, 6> &vec,
                                     const std::array<double, 3> &bf);
 
+  // ODE right-hand side that evaluates the B-field internally (used by
+  // evaluate_and_get_trajectory RK4 path and by RK45 stages).
+  std::array<double, 6> ode_lrz(const double t, const std::array<double, 6> &vec);
+
  public:
-  /* Default Constructor for TrajectoryTracer class
-
-  Creates an instance of the TrajectoryTracer, that is, the object that keeps
-  track of a single particle trajectory in Earth's magnetic field.
-
-  The default constructor initializes the object with the default values
-  provided for the members.
-
-  Parameters
-  ------------
-  None
-*/
   TrajectoryTracer();
-  /* Constructor for TrajectoryTracer class
 
-  Creates an instance of the TrajectoryTracer, that is, the object that keeps
-  track of a single particle trajectory in Earth's magnetic field.
-
-  This constructor requires 2 parameters, and the rest may be optional.
-
-  Required Parameters
-  -------------------
-  - charge (int) :
-        The charge of the particle in units of electrons.
-  - mass (double) :
-        The mass of the particle in units of GeV.
-
-  Optional Parameters
-  -------------------
-  - start_altitude (double) :
-        The starting altitude of the particle, i.e. the altitude in which
-        the cosmic ray has collided with the atmosphere (default 100km)
-  - escape_radius (double) :
-        The radius in which the particle has "escaped" relative to
-        Earth's center in units of km (default 10*RE)
-  - stepsize (double) :
-        The step size of the integration (default 1e-5)
-  - max_iter (int) :
-        The maximum number of iterations performed in the integration process
-        (default 10000)
-  - bfield_type (char) :
-        The type of Magnetic Field to evaluate the trajectory with. Only types
-        'd' (for dipole model) or 'i' (IGRF model) are allowed (default 'd').
-  - igrf_params (std::pair<std::string, double>) :
-        Parameters required for instantiating the IGRF model. The first entry
-        contains the path of the directory in which the .COF data file is
-        stored (default to the author's path to the directory). The second entry
-        contains the date in which the evaluation of the trajectory is requested
-        in decimal date (default 2020.).
- */
-  TrajectoryTracer( double charge,  
-                  double mass = 1.67e-27,
+  // Full constructor.
+  // solver_type: 'r' = frozen-field RK4 (default), 'b' = Boris pusher,
+  //              'a' = adaptive RK45 (Dormand-Prince)
+  // atol, rtol: error tolerances used only by the RK45 adaptive solver.
+  TrajectoryTracer(double charge,
+                   double mass = 1.67e-27,
                    double start_altitude = 100. * (1e3),
-                    double escape_radius = 10. * constants::RE,
-                    double stepsize = 1e-5,  int max_iter = 10000,
+                   double escape_radius = 10. * constants::RE,
+                   double stepsize = 1e-5,
+                   int max_iter = 10000,
                    const char bfield_type = 'i',
                    const std::pair<std::string, double> &igrf_params = {
-                       "/home/keito/devel/gtracr/data", 2020.});
+                       "/home/keito/devel/gtracr/data", 2020.},
+                   const char solver_type = 'r',
+                   double atol = 1e-3,
+                   double rtol = 1e-6);
 
-  // Reset state between reuses of the same tracer (clears particle_escaped_
-  // so the object can be called with evaluate() for a new rigidity without
-  // constructing a fresh TrajectoryTracer and reloading igrf13.json).
-  void reset() { particle_escaped_ = false; }
+  // Reset state for reuse (clears particle_escaped_ and nsteps_).
+  void reset() { particle_escaped_ = false; nsteps_ = 0; }
 
-  /* the charge of the particle associated with the Runge-Kutta
-   integrator */
-  const double &charge() { return charge_; }
-  // the mass of the particle associated with the Runge-Kutta integrator
-  const double &mass() { return mass_; }
-  // starting altitude of the particle
+  // Update the termination altitude for the next evaluate() call.
+  // Required when reusing a shared tracer across directions with different
+  // zenith angles (zenith > 90 reduces start_altitude via cos² scaling).
+  void set_start_altitude(double alt) { start_altitude_ = alt; }
+
+  const double &charge()         { return charge_; }
+  const double &mass()           { return mass_; }
   const double &start_altitude() { return start_altitude_; }
-  // the escape radius of the tracer
-  const double &escape_radius() { return escape_radius_; }
-  // the step size of the Runge-Kutta integrator
-  const double &stepsize() { return stepsize_; }
-  // the maximum number of steps of the integrator
-  int max_iter() { return max_iter_; }
-  // the boolean if particle has escaped or not
-  bool particle_escaped() { return particle_escaped_; }
-  // the final time of the trajectory
-  const double &final_time() { return final_time_; }
-  // the final sixvector of the trajectory
+  const double &escape_radius()  { return escape_radius_; }
+  const double &stepsize()       { return stepsize_; }
+  int max_iter()                 { return max_iter_; }
+  bool particle_escaped()        { return particle_escaped_; }
+  const double &final_time()     { return final_time_; }
   const std::array<double, 6> &final_sixvector() { return final_sixvector_; }
+  int nsteps()                   { return nsteps_; }
+  char solver_type()             { return solver_type_; }
 
-  /*
-  The differential equation for the momentum in
-  the radial component (dprdt)
-
-  Parameters
-  -----------
-  - r, theta, phi (double):
-        the coordinates at time t
-  - br, btheta, bphi (double):
-        the magnetic field components at time t
-  */
-
-  /*
-  Returns the lorentz factor, evaluated from the momentum
-
-  Parameters
-  ----------
-  - pr (const double &) :
-        the momentum in the radial component
-  - ptheta (const double &) :
-        the momentum in the polar direction
-  - pphi (const double &) :
-        the momentum in the azimuthal direction
-
-  Returns
-  -------
-  - gamma (const double) :
-        The lorentz factor for the particular momentum
-  */
   inline double lorentz_factor(const double &pr, const double &ptheta,
                                const double &pphi);
-  /* Evaluates the trajectory of the particle using a 4th-order Runge Kutta
-  algorithm.
 
-  Parameters
-  -----------
-  - t0 (double) :
-      the initial time in seconds
-  - vec0 (std::array<double, 6>) :
-       the initial six-vector (r0, theta0, phi0, pr0, ptheta0, pphi0) at time t0
-
-  Returns
-  --------
-  None
-
-  */
+  // Evaluate trajectory (no data stored) — dispatcher for all solver types.
   void evaluate(const double &t0, std::array<double, 6> &vec0);
 
-  /* Evaluates the trajectory of the particle using a 4th-order Runge Kutta
-  algorithm and return a map that contains the information of the particle
-  trajectory. This will most often be used for debugging purposes to see the
-  actual trajectory.
-
-  Parameters
-  -----------
-  - t0 (double) :
-      the initial time in seconds
-  - vec0 (std::array<double, 6>) :
-       the initial six-vector (r0, theta0, phi0, pr0, ptheta0, pphi0) at time t0
-
-  Returns
-  --------
-  - trajectory_data (std::map<std::string, std::vector<double> >) :
-      the trajectory information, that is, the time array of the trajectory
-      and the six-vector of the trajectory in std::vectors.
-      Notes:
-      - keys are ["t", "r", "theta", "phi", "pr", "ptheta", "pphi"]
-      - the final point of the trajectory is also contained in the map
-      - std::vectors (dynamic arrays) are used since the length of each
-        trajectory is not known at compile time.
-
-  */
+  // Evaluate trajectory and return full history — dispatcher for all solver types.
   std::map<std::string, std::vector<double>> evaluate_and_get_trajectory(
       double &t0, std::array<double, 6> &vec0);
+
+ private:
+  // Per-solver implementations of the evaluate loop.
+  void evaluate_rk4(const double &t0, std::array<double, 6> &vec0);
+  void evaluate_boris(const double &t0, std::array<double, 6> &vec0);
+  void evaluate_rk45(const double &t0, std::array<double, 6> &vec0);
+
+  std::map<std::string, std::vector<double>>
+  evaluate_and_get_trajectory_rk4(double &t0, std::array<double, 6> &vec0);
+
+  std::map<std::string, std::vector<double>>
+  evaluate_and_get_trajectory_boris(double &t0, std::array<double, 6> &vec0);
+
+  std::map<std::string, std::vector<double>>
+  evaluate_and_get_trajectory_rk45(double &t0, std::array<double, 6> &vec0);
+
+  // Helper: pack trajectory vectors into a map.
+  static std::map<std::string, std::vector<double>> make_traj_map(
+      std::vector<double> &t_arr, std::vector<double> &r_arr,
+      std::vector<double> &theta_arr, std::vector<double> &phi_arr,
+      std::vector<double> &pr_arr, std::vector<double> &ptheta_arr,
+      std::vector<double> &pphi_arr);
 };
 
 #endif  //__TRAJECTORYTRACER_HPP_

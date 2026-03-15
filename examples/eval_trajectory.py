@@ -45,7 +45,7 @@ def plot_trajectory(traj_datadict, title, check_3dtraj=False, show_plot=False):
         plot_3dtraj([traj_datadict], title_name=title, plotdir_path=PLOT_DIR)
 
 
-def get_trajectory():
+def get_trajectory(solver="rk4", field_mode="igrf"):
     # set parameters
 
     # parameters for trajectory
@@ -81,6 +81,10 @@ def get_trajectory():
     if not os.path.exists(PLOT_DIR):
         os.mkdir(PLOT_DIR)
 
+    # "igrf" maps to bfield_type[0]='i'; "table" maps to 't' — both use the
+    # C++ TrajectoryTracer; "table" additionally builds the 3-D lookup table.
+    bfield_type = "table" if field_mode == "table" else "igrf"
+
     # initialize trajectory
     traj = Trajectory(plabel=plabel,
                       zenith_angle=zenith,
@@ -90,21 +94,30 @@ def get_trajectory():
                       longitude=lng,
                       detector_altitude=detector_alt,
                       rigidity=rigidity,
-                      bfield_type="igrf")
+                      bfield_type=bfield_type,
+                      solver=solver)
 
-    # obtain the trajectory result
+    if field_mode == "table":
+        print("Building IGRF lookup table (64×128×256 grid)…", flush=True)
+
     traj_datadict = traj.get_trajectory(dt=dt,
                                         max_time=max_time,
                                         get_data=True,
                                         max_step=max_step,
                                         use_python=False)
+    if field_mode == "table":
+        print("Done.", flush=True)
+
+    print(f"particle_escaped = {traj.particle_escaped}  "
+          f"steps = {len(traj_datadict['t'])}")
 
     # convert lat, long in decimal notation to dms
     lat_dms, lng_dms = dec_to_dms(lat, lng)
 
-    title = "Particle Trajectory at {:s}, {:s} with Zenith Angle {:.1f}°, \
-           \n Azimuth Angle {:.1f}° and Rigidity R = {:.1f}GV".format(
-        lat_dms, lng_dms, zenith, azimuth, rigidity)
+    title = ("Particle Trajectory at {:s}, {:s} with Zenith Angle {:.1f}°,"
+             "\n Azimuth Angle {:.1f}° and Rigidity R = {:.1f}GV"
+             " [field: {:s}]").format(
+        lat_dms, lng_dms, zenith, azimuth, rigidity, field_mode)
 
     # get momentum only if check_pmag is true
     if check_pmag:
@@ -115,5 +128,16 @@ def get_trajectory():
 
 
 if __name__ == "__main__":
-    # should add some argparse thing later on
-    get_trajectory()
+    parser = argparse.ArgumentParser(
+        description="Evaluate and plot a single cosmic ray trajectory.")
+    parser.add_argument(
+        "--solver", default="rk4",
+        choices=["rk4", "boris", "rk45"],
+        help="Integration method: rk4 (frozen-field RK4, default), boris, or rk45 (adaptive).")
+    parser.add_argument(
+        "--field-mode", dest="field_mode", default="igrf",
+        choices=["igrf", "table"],
+        help="Field evaluation mode: igrf (direct IGRF, default) or "
+             "table (precomputed 3-D lookup table with trilinear interpolation).")
+    args = parser.parse_args()
+    get_trajectory(solver=args.solver, field_mode=args.field_mode)

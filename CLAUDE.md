@@ -164,6 +164,24 @@ in this regime; use mid-latitude locations (e.g. `location_name="Kamioka"`) or
   loops over rigidities without reloading `igrf13.json`
 - **std::vector pre-allocation**: `reserve(max_iter_)` already present in `evaluate_and_get_trajectory()`
 
+### Additional Solvers (completed)
+
+Three integration methods are now available in `TrajectoryTracer` (C++), selectable via
+the `solver=` keyword in `Trajectory`, `GMRC`, and all CLI scripts (`--solver`):
+
+| Solver | `solver=` | B-evals/step | Notes |
+|--------|-----------|--------------|-------|
+| Frozen-field RK4 | `"rk4"` | 1 | Default; O(h⁴) with frozen-field O(h²) error |
+| Boris pusher | `"boris"` | 1 | Symplectic; Cartesian internally; ~30% faster |
+| Adaptive RK45 | `"rk45"` | ~6 (FSAL) | Dormand-Prince; uses `atol=`, `rtol=` |
+
+Numerical comparison script: `examples/eval_solver_comparison.py --n-perf N`
+
+Key findings:
+- Boris is **30% faster** than RK4 at equal step count, with **2× better momentum conservation**
+- RK45 is extremely fast for coarse GMRC (~100× fewer steps) but needs tight tolerances
+  (`atol≲1e-6, rtol≲1e-6`) for position accuracy comparable to RK4 at dt=1e-5
+
 ### Bottleneck Map (remaining)
 
 | # | Bottleneck | Location | Impact |
@@ -174,10 +192,7 @@ in this regime; use mid-latitude locations (e.g. `location_name="Kamioka"`) or
 
 **Medium-term (weeks):**
 - Precompute a 3D B-field grid (r, θ, φ) → 10–30× speedup on field evaluation; eliminates
-  the recursive Legendre polynomial evaluation (4× per RK4 step) with trilinear interpolation
-- Implement [Boris integrator](https://en.wikipedia.org/wiki/Boris_method) (1 B-eval/step vs 4
-  for RK4, better energy conservation)
-- Implement adaptive RK45 (Dormand-Prince) for fewer total steps
+  the recursive Legendre polynomial evaluation with trilinear interpolation
 
 **Long-term (GPU, months):**
 - The computation is *embarrassingly parallel* at the trajectory level — each trajectory is

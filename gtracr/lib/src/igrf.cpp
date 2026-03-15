@@ -641,15 +641,12 @@ std::array<double, 3> IGRF::values(const double& r, const double& theta,
   //   B_phi   =  B_E   (phi increases eastward, same direction)
   std::array<double, 3> values;
 
-  values[0] = -bfield_.z;   // Br     = -B_down
-  values[1] = -bfield_.x;   // Btheta = -B_north
-  values[2] =  bfield_.y;   // Bphi   =  B_east
-
-  // std::cout << "Finished evaluating bfield values." << std::endl;
-
-  // for (auto val : values) {
-  //   std::cout << val << std::endl;
-  // }
+  // shval3 fills bfield_ in nanotesla (nT); convert to Tesla to match
+  // MagneticField::values() and the SI units expected by TrajectoryTracer.
+  constexpr double NT_TO_T = 1e-9;
+  values[0] = -bfield_.z * NT_TO_T;   // Br     = -B_down
+  values[1] = -bfield_.x * NT_TO_T;   // Btheta = -B_north
+  values[2] =  bfield_.y * NT_TO_T;   // Bphi   =  B_east
 
   return values;
 }

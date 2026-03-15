@@ -1,7 +1,7 @@
 project('gtracr', 'cpp',
   version: '1.0.0',
   default_options: [
-    'cpp_std=c++11',
+    'cpp_std=c++14',
     'optimization=3',
     'warning_level=0',
   ]
@@ -27,6 +27,15 @@ if host_machine.system() != 'windows'
   if host_machine.system() == 'darwin'
     extra_cpp_args += '-stdlib=libc++'
   endif
+endif
+
+# GPU support: detect HIP compiler (works for both NVIDIA/CUDA and AMD/ROCm)
+hipcc = find_program('hipcc', required: false)
+has_gpu = hipcc.found()
+if has_gpu
+  message('hipcc found — GPU (HIP) support enabled')
+else
+  message('hipcc not found — building CPU-only (GPU support disabled)')
 endif
 
 subdir('gtracr')

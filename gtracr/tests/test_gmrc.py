@@ -40,6 +40,9 @@ def test_evaluate_single_direction():
         1e-4,        # dt
         0.05,        # max_time
         42,          # seed
+        "r",         # solver_char
+        1e-3,        # atol
+        1e-6,        # rtol
     )
     result = _evaluate_single_direction(args)
     assert len(result) == 3
@@ -63,6 +66,9 @@ def test_evaluate_single_direction_escaped():
         1e-4,
         0.5,         # enough time to escape
         123,
+        "r",         # solver_char
+        1e-3,        # atol
+        1e-6,        # rtol
     )
     result = _evaluate_single_direction(args)
     assert len(result) == 3

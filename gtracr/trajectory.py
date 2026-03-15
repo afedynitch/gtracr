@@ -48,6 +48,9 @@ class Trajectory:
     - escape_altitude : float
         the altitude in which the particle has "escaped" Earth in meters (default = 10 * RE)
     '''
+    # Solver name → C++ char mapping
+    _SOLVER_CHARS = {"rk4": "r", "boris": "b", "rk45": "a"}
+
     def __init__(self,
                  zenith_angle,
                  azimuth_angle,
@@ -61,7 +64,10 @@ class Trajectory:
                  bfield_type="igrf",
                  date=str(date.today()),
                  plabel="p+",
-                 escape_altitude=10. * EARTH_RADIUS):
+                 escape_altitude=10. * EARTH_RADIUS,
+                 solver="rk4",
+                 atol=1e-3,
+                 rtol=1e-6):
         '''
         Cosmic ray direction configurations
         '''
@@ -121,11 +127,17 @@ class Trajectory:
         # find the path to the data and set current date for igrf bfield
         datapath = os.path.abspath(DATA_DIR)
         # print(datapath)
-        dec_date = ymd_to_dec(date)
+        dec_date = float(ymd_to_dec(date))
         self.igrf_params = (datapath, dec_date)
         '''
         Other set-ups
         '''
+        # Solver configuration
+        solver_key = solver.lower() if isinstance(solver, str) else solver
+        self.solver_char = self._SOLVER_CHARS.get(solver_key, "r")
+        self.atol = atol
+        self.rtol = rtol
+
         self.particle_escaped = False  # check if trajectory is allowed or not
         # final time and six-vector, used for testing purposes
         self.final_time = 0.
@@ -199,7 +211,9 @@ class Trajectory:
             traj_tracer = TrajectoryTracer(charge_si, mass_si,
                                            self.start_alt, self.esc_alt, dt,
                                            max_step, self.bfield_type,
-                                           self.igrf_params)
+                                           self.igrf_params,
+                                           self.solver_char,
+                                           self.atol, self.rtol)
 
         # set initial values
         particle_t0 = 0.

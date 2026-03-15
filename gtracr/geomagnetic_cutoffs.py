@@ -29,13 +29,15 @@ def _evaluate_single_direction(args):
     Parameters
     ----------
     args : tuple
-        (location, plabel, bfield_type, date_str, palt, rigidity_list, dt, max_time, seed)
+        (location, plabel, bfield_type, date_str, palt, rigidity_list, dt, max_time,
+         seed, solver_char, atol, rtol)
 
     Returns
     -------
     (azimuth, zenith, rcutoff) or (azimuth, zenith, 0.0) if no cutoff found
     '''
-    location, plabel, bfield_type, date_str, palt, rigidity_list, dt, max_time, seed = args
+    location, plabel, bfield_type, date_str, palt, rigidity_list, dt, max_time, \
+        seed, solver_char, atol, rtol = args
     rng = np.random.default_rng(seed)
     azimuth, zenith = rng.random(2) * np.array([360., 180.])
 
@@ -62,6 +64,7 @@ def _evaluate_single_direction(args):
         traj.start_alt, traj.esc_alt,
         dt, max_step,
         traj.bfield_type, traj.igrf_params,
+        solver_char, atol, rtol,
     )
 
     # Precompute momentum direction unit vector (fixed across rigidities).
@@ -113,6 +116,11 @@ class GMRC():
     - n_workers : int, optional
         Number of parallel worker processes to use. Defaults to the number of CPU cores.
         Set to 1 to disable parallelism (useful for debugging).
+    - solver : str, optional
+        Integration method: "rk4" (frozen-field RK4, default), "boris" (Boris pusher),
+        or "rk45" (adaptive Dormand-Prince).
+    - atol, rtol : float, optional
+        Absolute and relative tolerances for the RK45 adaptive solver (defaults 1e-3, 1e-6).
     '''
     def __init__(self,
                  location="Kamioka",
@@ -124,7 +132,10 @@ class GMRC():
                  min_rigidity=5.,
                  max_rigidity=55.,
                  delta_rigidity=1.,
-                 n_workers=_default_workers()):
+                 n_workers=_default_workers(),
+                 solver="rk4",
+                 atol=1e-3,
+                 rtol=1e-6):
         # set class attributes
         self.location = location
         self.palt = particle_altitude
@@ -133,6 +144,10 @@ class GMRC():
         self.plabel = particle_type
         self.date = date
         self.n_workers = n_workers  # None = use all CPU cores
+        _SOLVER_CHARS = {"rk4": "r", "boris": "b", "rk45": "a"}
+        self.solver_char = _SOLVER_CHARS.get(solver.lower(), "r")
+        self.atol = atol
+        self.rtol = rtol
         '''
         Rigidity configurations
         '''
@@ -176,7 +191,8 @@ class GMRC():
 
         args_list = [
             (self.location, self.plabel, self.bfield_type, self.date,
-             self.palt, rigidity_list, dt, max_time, int(seeds[i]))
+             self.palt, rigidity_list, dt, max_time, int(seeds[i]),
+             self.solver_char, self.atol, self.rtol)
             for i in range(self.iter_num)
         ]
 

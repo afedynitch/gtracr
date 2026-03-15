@@ -1,338 +1,130 @@
 /*
-Trajectory Tracer class that traces the trajectory of the particle
-by performing a 4th-order Runge Kutta numerical integration algorithm.
+Trajectory Tracer — integrators: frozen-field RK4, Boris pusher, adaptive RK45.
 */
 
 #include "TrajectoryTracer.hpp"
 
-/*
-Operator overloading between std::array
-These are free functions and are not members of
-the TrajectoryTracer class.
-*/
+// ---------------------------------------------------------------------------
+// std::array operator overloads (free functions)
+// ---------------------------------------------------------------------------
 
-/* Element-wise addition of 2 std::array<double, 6>.
-    Used for compact notations when evaluating the ODE.
-
-    Example: vec = vec1 + vec2 is the same thing as:
-    for (int i=0; i<vec1.size(); ++i) {
-      vec[i] = vec1[i] + vec2[i];
-    }
-
-  Parameters
-  ------------
-  - vec1 (std::array<double, 6>) : the first array
-  - vec2 (std::array<double, 6>) : the second array
-  Returns
-  --------
-  - vec_sum (vec2) (std::array<double, 6>) :
-      the element-wise sum of vec1 and vec2
-*/
-inline std::array<double, 6> operator+(std::array<double, 6> lh_vec,
-                                       std::array<double, 6> rh_vec) {
-  std::transform(lh_vec.begin(), lh_vec.end(), rh_vec.begin(), lh_vec.begin(),
+inline std::array<double, 6> operator+(std::array<double, 6> lh,
+                                       std::array<double, 6> rh) {
+  std::transform(lh.begin(), lh.end(), rh.begin(), lh.begin(),
                  std::plus<double>());
-  return lh_vec;
+  return lh;
 }
 
-/* Element-wise multiplication of 2 std::array<double, 6>.
-    Used for compact notations when evaluating the ODE
-
-    Example: vec = vec1 * vec2 is the same thing as:
-    for (int i=0; i<vec1.size(); ++i) {
-      vec[i] = vec1[i] * vec2[i];
-    }
-
-  Parameters
-  ------------
-  - vec1 (std::array<double, 6>) : the first array
-  - vec2 (std::array<double, 6>) : the second array
-  Returns
-  --------
-  - vec_mult (vec2) (std::array<double, 6>) :
-      the element-wise multiplication of vec1 and vec2
-*/
-inline std::array<double, 6> operator*(std::array<double, 6> lh_vec,
-                                       std::array<double, 6> rh_vec) {
-  std::transform(lh_vec.begin(), lh_vec.end(), rh_vec.begin(), lh_vec.begin(),
+inline std::array<double, 6> operator*(std::array<double, 6> lh,
+                                       std::array<double, 6> rh) {
+  std::transform(lh.begin(), lh.end(), rh.begin(), lh.begin(),
                  std::multiplies<double>());
-  return lh_vec;
+  return lh;
 }
 
-/* Scalar multiplication between a value and a std::array
-    Used for compact notations when evaluating the ODE
-
-    Example: vec_smult = val * vec is the same thing as:
-    for (int i = 0; i < 6; ++i) {
-    vec_smult[i] = val * vec[i];
-  }
-
-  Parameters
-  ------------
-  - val (double) : the scalar
-  - vec (std::array<double, 6>) : the array
-  Returns
-  --------
-  - vec_smult (std::array<double, 6>) :
-      the scalar multiplication of val and vec
-*/
 inline std::array<double, 6> operator*(const double lh_val,
-                                       std::array<double, 6> rh_vec) {
-  std::transform(
-      rh_vec.cbegin(), rh_vec.cend(), rh_vec.begin(),
-      std::bind(std::multiplies<double>(), std::placeholders::_1, lh_val));
-  return rh_vec;
+                                       std::array<double, 6> rh) {
+  std::transform(rh.cbegin(), rh.cend(), rh.begin(),
+                 std::bind(std::multiplies<double>(), std::placeholders::_1, lh_val));
+  return rh;
 }
 
+// ---------------------------------------------------------------------------
+// Constructors
+// ---------------------------------------------------------------------------
 
-// TrajectoryTracer class
-
-/* Default Constructor for TrajectoryTracer class
-
-  Creates an instance of the TrajectoryTracer, that is, the object that keeps
-  track of a single particle trajectory in Earth's magnetic field.
-
-  The default constructor initializes the object with the default values
-  provided for the members.
-
-  Members
-  --------
-  - bfield_ (MagneticField instance):
-      The MagneticField object that contains the information pertaining the
-      Earth's magnetic field model (default is dipole model).
-  - charge_ (double) :
-      The charge of the particle in units of Coulombs (default 1.602e-19 C, i.e.
-  1e).
-  - mass_ (double) :
-      The (rest) mass of the particle in units of kilograms
-  (default 1.672e-27 kg, i.e. proton mass).
-  - escape_radius_ (double) :
-      The radial distance relative to Earth's center in which the particle is
-      set to have "escaped" Earth, i.e. a valid cosmic ray coming from some
-      astrophysical source. Units are in kilometers (default 10*Earth's radius)
-  - stepsize_ (double) :
-      The stepsize for the integration process (default 1e-5)
-  - max_iter_ (int) :
-      The maximum number of iterations performed for the integration process
-      (default 10000)
-  - particle_escaped_ (bool) :
-      True if particle has effectively "escaped" from Earth (i.e. when the
-      radial component of the trajectory > escape_radius_) (default false).
-
-  Parameters
-  ------------
-  None
-*/
 TrajectoryTracer::TrajectoryTracer()
-    : bfield_{MagneticField()},
+    : bfield_type_{'d'},
       charge_{constants::ELEMENTARY_CHARGE},
       mass_{0.938 * constants::KG_PER_GEVC2},
       start_altitude_{100. * (1e3)},
       escape_radius_{10. * constants::RE},
       stepsize_{1e-5},
       max_iter_{10000},
-      particle_escaped_{false} {}
+      particle_escaped_{false},
+      solver_type_{'r'},
+      atol_{1e-3},
+      rtol_{1e-6},
+      nsteps_{0} {}
 
-/* Constructor for TrajectoryTracer class
-
-Creates an instance of the TrajectoryTracer, that is, the object that keeps
-track of a single particle trajectory in Earth's magnetic field.
-
-This constructor requires 2 parameters, and the rest may be optional.
-
-Class Members
---------
-- bfield_ (MagneticField instance):
-    The MagneticField object that contains the information pertaining the
-    Earth's magnetic field model (default is dipole model).
-- charge_ (double) :
-    The charge of the particle in units of Coulombs (default 1.602e-19 C, i.e.
-1e).
-- mass_ (double) :
-    The (rest) mass of the particle in units of kilograms
-(default 1.672e-27 kg, i.e. proton mass).
-- escape_radius_ (double) :
-    The radial distance relative to Earth's center in which the particle is
-    set to have "escaped" Earth, i.e. a valid cosmic ray coming from some
-    astrophysical source. Units are in kilometers (default 10*Earth's radius)
-- stepsize_ (double) :
-    The stepsize for the integration process (default 1e-5)
-- max_iter_ (int) :
-    The maximum number of iterations performed for the integration process
-    (default 10000)
-- particle_escaped_ (bool) :
-    True if particle has effectively "escaped" from Earth (i.e. when the
-    radial component of the trajectory > escape_radius_) (default false).
-
-Required Parameters
--------------------
-- charge (int) :
-      The charge of the particle in units of electrons.
-- mass (double) :
-      The mass of the particle in units of GeV.
-
-Optional Parameters
--------------------
-- escape_radius (double) :
-      The radius in which the particle has "escaped" relative to
-      Earth's center in units of km (default 10*RE)
-- stepsize (double) :
-      The step size of the integration (default 1e-5)
-- max_iter (int) :
-      The maximum number of iterations performed in the integration process
-      (default 10000)
-- bfield_type (char) :
-      The type of Magnetic Field to evaluate the trajectory with. Only types
-      'd' (for dipole model) or 'i' (IGRF model) are allowed (default 'd').
-- igrf_params (std::pair<std::string, double>) :
-      Parameters required for instantiating the IGRF model. The first entry
-      contains the path of the directory in which the .COF data file is
-      stored (default to the author's path to the directory). The second entry
-      contains the date in which the evaluation of the trajectory is requested
-      in decimal date (default 2020.).
-*/
-TrajectoryTracer::TrajectoryTracer( double charge,  double mass,
-                                     double start_altitude,
-                                    double escape_radius /*= 10. * constants::RE*/,
-                                    double stepsize /*= 1e-5*/,
-                                    int max_iter /* = 10000*/,
-                                   const char bfield_type /*= 'i'*/,
-                                   const std::pair<std::string, double>
-                                       &igrf_params /*=
-      {"/home/keito/devel/gtracr/data",
-      2020.}*/)
-    : charge_{charge},
+TrajectoryTracer::TrajectoryTracer(
+    double charge, double mass, double start_altitude, double escape_radius,
+    double stepsize, int max_iter, const char bfield_type,
+    const std::pair<std::string, double> &igrf_params,
+    const char solver_type, double atol, double rtol)
+    : bfield_type_{bfield_type},
+      charge_{charge},
       mass_{mass},
       start_altitude_{start_altitude},
       escape_radius_{escape_radius},
       stepsize_{stepsize},
       max_iter_{max_iter},
-      particle_escaped_{false} {
+      particle_escaped_{false},
+      solver_type_{solver_type},
+      atol_{atol},
+      rtol_{rtol},
+      nsteps_{0} {
   switch (bfield_type) {
     case 'd':
-      bfield_ = MagneticField();
+      break;  // dipole_ is default-constructed; no IGRF needed
+    case 't':
+      igrf_ = std::make_unique<IGRF>(igrf_params.first + "/igrf13.json",
+                                     igrf_params.second);
+      table_ = generate_igrf_table(*igrf_, table_params_);
       break;
     case 'i':
-      // add file name to DATA_DIR (first component in igrf_params)
-      std::string DATA_PATH = igrf_params.first + "/igrf13.json";
-      double sdate = igrf_params.second;
-      bfield_ = IGRF(DATA_PATH, sdate);
+    default:
+      bfield_type_ = 'i';
+      igrf_ = std::make_unique<IGRF>(igrf_params.first + "/igrf13.json",
+                                     igrf_params.second);
       break;
   }
 }
 
-/* The ordinary differential equations that describes the motion
-  of charge particles in Earth's magnetic field via the Lorentz force
-  in spherical coordinates.
+// ---------------------------------------------------------------------------
+// B-field dispatch
+// ---------------------------------------------------------------------------
 
-  Parameters
-  -----------
-  - t (double) :
-      the time
-  - vec (std::array<double, 6>) :
-       the six-vector (r, theta, phi, pr, ptheta, pphi) at time t
-
-  Returns
-  --------
-  - ode_lrz (std::array<double, 6>) :
-       the ordinary differential equation for the six vector based on the
-  Lorentz force equation
-*/
-std::array<double, 6> TrajectoryTracer::ode_lrz(const double t,
-                                                const std::array<double, 6>& vec) {
-
-  // unpack array
-  double r = vec[0];
-  double theta = vec[1];
-  double phi = vec[2];
-  double pr = vec[3];
-  double ptheta = vec[4];
-  double pphi = vec[5];
-
-  // get the lorentz factor
-  double gmma = lorentz_factor(pr, ptheta, pphi);
-  double rel_mass = mass_ * gmma;
-
-  // evaluate B-field
-  std::array<double, 3> bf_values = bfield_.values(r, theta, phi);
-  double bf_r = bf_values[0];
-  double bf_theta = bf_values[1];
-  double bf_phi = bf_values[2];
-
-  // get the momentum ODE
-  // Note:
-  // - charge is inverted to allow backtracking
-  // - xx_lrz is the lorentz term in the ODE
-  // - xx_sphcmp is the auxiliary terms due to acceleration
-  //   in spherical coordiantes in the ODE
-
-  // -q * (ptheta * Bphi - Btheta * pphi)
-  double dprdt_lrz = -1. * charge_ * ((ptheta * bf_phi) - (bf_theta * pphi));
-  // (ptheta^2 / r) + (pphi^2 / r)
-  double dprdt_sphcmp = (((ptheta * ptheta) + (pphi * pphi)) / r);
-  // dprdt
-  double dprdt = dprdt_lrz + dprdt_sphcmp;
-
-  // q * (pr * Bphi - Br * pphi)
-  double dpthetadt_lrz = charge_ * ((pr * bf_phi) - (bf_r * pphi));
-  // (pphi^2 * cos(theta) / (r * sin(theta))) - (pr*ptheta / r)
-  double dpthetadt_sphcmp =
-      ((pphi * pphi * cos(theta)) / (r * sin(theta))) - ((pr * ptheta) / r);
-  // dpthetadt
-  double dpthetadt = dpthetadt_lrz + dpthetadt_sphcmp;
-
-  // -q * (pr * Btheta - Br * ptheta)
-  double dpphidt_lrz = -1. * charge_ * ((pr * bf_theta) - (bf_r * ptheta));
-  // (pr * pphi / r) + ((ptheta * pphi * cos(theta)) / (r * sin(theta)))
-  double dpphidt_sphcmp =
-      ((pr * pphi) / r) + ((ptheta * pphi * cos(theta)) / (r * sin(theta)));
-  // dpphidt
-  double dpphidt = dpphidt_lrz - dpphidt_sphcmp;
-
-  // create the vector form of the ODE with the position components included
-  // as well
-  std::array<double, 6> ode_lrz = std::array<double, 6>{
-      {pr, (ptheta / r), (pphi / (r * sin(theta))), dprdt, dpthetadt, dpphidt}};
-
-  // SixVector result = ode_lrz * (1. / rel_mass);
-
-  return (1. / rel_mass) * ode_lrz;
+std::array<double, 3> TrajectoryTracer::bfield_at(double r, double theta,
+                                                    double phi) {
+  switch (bfield_type_) {
+    case 't': {
+      // Fall back to direct IGRF for r outside the table's valid range so
+      // that RK45 intermediate-stage evaluations beyond 10 RE (the escape
+      // boundary) receive physically correct, diminishing field values rather
+      // than the clamped boundary value.
+      float r_f = static_cast<float>(r);
+      if (r_f < table_params_.r_min || r_f > table_params_.r_max)
+        return igrf_->values(r, theta, phi);
+      auto b = table_lookup(table_.data(), table_params_,
+                            r_f,
+                            static_cast<float>(theta),
+                            static_cast<float>(phi));
+      return {static_cast<double>(b[0]),
+              static_cast<double>(b[1]),
+              static_cast<double>(b[2])};
+    }
+    case 'i':
+      return igrf_->values(r, theta, phi);
+    default:   // 'd'
+      return dipole_.values(r, theta, phi);
+  }
 }
-/* Evaluates the trajectory of the particle using a 4th-order Runge Kutta
-algorithm.
 
-Parameters
------------
-- t0 (double) :
-    the initial time in seconds
-- vec0 (std::array<double, 6>) :
-      the initial six-vector (r0, theta0, phi0, pr0, ptheta0, pphi0) at time t0
+// ---------------------------------------------------------------------------
+// ODE right-hand sides
+// ---------------------------------------------------------------------------
 
-Returns
---------
-None
+std::array<double, 6> TrajectoryTracer::ode_lrz(const double t,
+                                                 const std::array<double, 6> &vec) {
+  double r = vec[0], theta = vec[1], phi = vec[2];
+  double pr = vec[3], ptheta = vec[4], pphi = vec[5];
 
-*/
-// ode_lrz variant: identical physics but accepts a pre-computed B-field
-// so the caller can evaluate bfield_.values() once per RK4 step and reuse
-// the result for all four sub-steps (frozen-field optimisation).
-std::array<double, 6> TrajectoryTracer::ode_lrz_bf(
-    const double t, const std::array<double, 6> &vec,
-    const std::array<double, 3> &bf) {
-
-  double r      = vec[0];
-  double theta  = vec[1];
-  double phi    = vec[2];
-  double pr     = vec[3];
-  double ptheta = vec[4];
-  double pphi   = vec[5];
-
-  double gmma    = lorentz_factor(pr, ptheta, pphi);
+  double gmma     = lorentz_factor(pr, ptheta, pphi);
   double rel_mass = mass_ * gmma;
 
-  double bf_r     = bf[0];
-  double bf_theta = bf[1];
-  double bf_phi   = bf[2];
+  std::array<double, 3> bf = bfield_at(r, theta, phi);
+  double bf_r = bf[0], bf_theta = bf[1], bf_phi = bf[2];
 
   double dprdt_lrz    = -1. * charge_ * ((ptheta * bf_phi) - (bf_theta * pphi));
   double dprdt_sphcmp = (((ptheta * ptheta) + (pphi * pphi)) / r);
@@ -353,162 +145,489 @@ std::array<double, 6> TrajectoryTracer::ode_lrz_bf(
   return (1. / rel_mass) * result;
 }
 
-void TrajectoryTracer::evaluate(const double &t0, std::array<double, 6> &vec0) {
-  double h = stepsize_;
+std::array<double, 6> TrajectoryTracer::ode_lrz_bf(
+    const double t, const std::array<double, 6> &vec,
+    const std::array<double, 3> &bf) {
 
-  double t = t0;
-  std::array<double, 6> vec = vec0;
+  double r = vec[0], theta = vec[1], phi = vec[2];
+  double pr = vec[3], ptheta = vec[4], pphi = vec[5];
 
-  for (int i = 0; i < max_iter_; ++i) {
-    // Evaluate B-field once at the start of each step (frozen-field RK4).
-    // The field changes by O(h * v * dB/dr) ~ 1e-9 T per step, negligible
-    // relative to the ~3e-5 T field magnitude, so this is a valid
-    // approximation that reduces bfield_.values() calls from 4× to 1× per step.
-    std::array<double, 3> bf = bfield_.values(vec[0], vec[1], vec[2]);
+  double gmma     = lorentz_factor(pr, ptheta, pphi);
+  double rel_mass = mass_ * gmma;
 
-    std::array<double, 6> k1_vec = h * ode_lrz_bf(t,             vec,                     bf);
-    std::array<double, 6> k2_vec = h * ode_lrz_bf(t + 0.5 * h,  vec + (0.5 * k1_vec),   bf);
-    std::array<double, 6> k3_vec = h * ode_lrz_bf(t + 0.5 * h,  vec + (0.5 * k2_vec),   bf);
-    std::array<double, 6> k4_vec = h * ode_lrz_bf(t + h,         vec + h * k3_vec,        bf);
-    vec = vec + (1. / 6.) * (k1_vec + (2. * k2_vec) + (2. * k3_vec) + k4_vec);
-    t += h;
+  double bf_r = bf[0], bf_theta = bf[1], bf_phi = bf[2];
 
-    const double &r = vec[0];
-    if (r > escape_radius_) {
-      particle_escaped_ = true;
-      break;
-    }
-    if (r < start_altitude_ + constants::RE) {
-      break;
-    }
-  }
-  final_time_      = t;
-  final_sixvector_ = vec;
-}  // evaluate
+  double dprdt_lrz    = -1. * charge_ * ((ptheta * bf_phi) - (bf_theta * pphi));
+  double dprdt_sphcmp = (((ptheta * ptheta) + (pphi * pphi)) / r);
+  double dprdt        = dprdt_lrz + dprdt_sphcmp;
 
-/* Evaluates the trajectory of the particle using a 4th-order Runge Kutta
-algorithm and return a map that contains the information of the particle
-trajectory. This will most often be used for debugging purposes to see the
-actual trajectory.
+  double dpthetadt_lrz    = charge_ * ((pr * bf_phi) - (bf_r * pphi));
+  double dpthetadt_sphcmp =
+      ((pphi * pphi * cos(theta)) / (r * sin(theta))) - ((pr * ptheta) / r);
+  double dpthetadt = dpthetadt_lrz + dpthetadt_sphcmp;
 
-Parameters
------------
-- t0 (double) :
-    the initial time in seconds
-- vec0 (std::array<double, 6>) :
-     the initial six-vector (r0, theta0, phi0, pr0, ptheta0, pphi0) at time t0
+  double dpphidt_lrz    = -1. * charge_ * ((pr * bf_theta) - (bf_r * ptheta));
+  double dpphidt_sphcmp =
+      ((pr * pphi) / r) + ((ptheta * pphi * cos(theta)) / (r * sin(theta)));
+  double dpphidt = dpphidt_lrz - dpphidt_sphcmp;
 
-Returns
---------
-- trajectory_data (std::map<std::string, std::vector<double> >) :
-    the trajectory information, that is, the time array of the trajectory
-    and the six-vector of the trajectory in std::vectors.
-    Notes:
-    - keys are ["t", "r", "theta", "phi", "pr", "ptheta", "pphi"]
-    - the final point of the trajectory is also contained in the map
-    - std::vectors (dynamic arrays) are used since the length of each
-      trajectory is not known at compile time.
+  std::array<double, 6> result = {{
+      pr, (ptheta / r), (pphi / (r * sin(theta))), dprdt, dpthetadt, dpphidt}};
+  return (1. / rel_mass) * result;
+}
 
-*/
-std::map<std::string, std::vector<double>>
-TrajectoryTracer::evaluate_and_get_trajectory(double &t0,
-                                              std::array<double, 6> &vec0) {
-  double h = stepsize_;  // step size in shorter notation
-
-  // set the initial conditions
-  double t = t0;
-  std::array<double, 6> vec = vec0;
-
-  // initialize array to contain data
-  std::vector<double> t_arr, r_arr, theta_arr, phi_arr, pr_arr, ptheta_arr,
-      pphi_arr;
-
-  // pre-allocate to avoid repeated reallocation during push_back
-  t_arr.reserve(max_iter_);
-  r_arr.reserve(max_iter_);
-  theta_arr.reserve(max_iter_);
-  phi_arr.reserve(max_iter_);
-  pr_arr.reserve(max_iter_);
-  ptheta_arr.reserve(max_iter_);
-  pphi_arr.reserve(max_iter_);
-
-  // start the loop
-  for (int i = 0; i < max_iter_; ++i) {
-    // append the values first
-    // how vec looks like:
-    // (r, theta, phi, pr, ptheta, pphi) = vec
-
-    t_arr.push_back(t);
-    r_arr.push_back(vec[0]);
-    theta_arr.push_back(vec[1]);
-    phi_arr.push_back(vec[2]);
-    pr_arr.push_back(vec[3]);
-    ptheta_arr.push_back(vec[4]);
-    pphi_arr.push_back(vec[5]);
-
-  // start the loop
-    std::array<double, 6> k1_vec =  ode_lrz(t, vec);
-    std::array<double, 6> k2_vec = ode_lrz(t + (0.5 * h), vec + (0.5 * h * k1_vec ));
-    std::array<double, 6> k3_vec = ode_lrz(t + (0.5 * h), vec + (0.5 * h * k2_vec ));
-    std::array<double, 6> k4_vec = ode_lrz(t + h, vec + h * k3_vec);
-    std::array<double, 6>k_vec = (h / 6.) * (k1_vec + (2. * k2_vec ) + (2. * k3_vec ) + k4_vec);
-    // increment by weighted sum
-    vec = vec + k_vec;
-    t += h;  // increase time
-
-    const double& r = vec[0];
-
-    if (r > escape_radius_) {
-      particle_escaped_ = true;
-      break;
-    }  // if (r > escape_radius_)
-
-    // breaking condition
-    // if particle reaches back onto Earth's surface again
-    if (r < start_altitude_ + constants::RE) {
-      break;
-    }  // if (r < start_altitude_ + constants::RE)
-
-  }    // for (int i = 0; i < max_iter_; ++i)
-  // store the final time and six-vector for checking purposes
-  // the last recorded time and six-vector is the final six-vector / time
-  final_time_ = t;
-  final_sixvector_ = vec;
-
-  // create map that contains trajectory data
-  std::map<std::string, std::vector<double>> trajectory_data = {
-      {"t", t_arr},      {"r", r_arr},   {"theta", theta_arr},
-      {"phi", phi_arr},  {"pr", pr_arr}, {"ptheta", ptheta_arr},
-      {"pphi", pphi_arr}};
-
-  return trajectory_data;
-}  // evaluate_and_get_trajectory
-
-/*
-Returns the lorentz factor, evaluated from the momentum
-
-Parameters
-----------
-- pr (const double &) :
-      the momentum in the radial component
-- ptheta (const double &) :
-      the momentum in the polar direction
-- pphi (const double &) :
-      the momentum in the azimuthal direction
-
-Returns
--------
-- gamma (const double) :
-      The lorentz factor for the particular momentum
-*/
 inline double TrajectoryTracer::lorentz_factor(const double &pr,
                                                const double &ptheta,
                                                const double &pphi) {
-  // momentum magnitude
   double pmag = sqrt((pr * pr) + (ptheta * ptheta) + (pphi * pphi));
-  // ||p|| / (m*c)
   double pm_ratio = pmag / (mass_ * constants::SPEED_OF_LIGHT);
-  // Lorentz factor
-  double gamma = sqrt(1. + (pm_ratio * pm_ratio));
-  return gamma;
-};  // lorentz_factor
+  return sqrt(1. + (pm_ratio * pm_ratio));
+}
+
+// ---------------------------------------------------------------------------
+// Dispatcher: evaluate()
+// ---------------------------------------------------------------------------
+
+void TrajectoryTracer::evaluate(const double &t0, std::array<double, 6> &vec0) {
+  switch (solver_type_) {
+    case 'b': evaluate_boris(t0, vec0); break;
+    case 'a': evaluate_rk45(t0, vec0);  break;
+    default:  evaluate_rk4(t0, vec0);   break;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Frozen-field RK4
+// ---------------------------------------------------------------------------
+
+void TrajectoryTracer::evaluate_rk4(const double &t0,
+                                     std::array<double, 6> &vec0) {
+  double h = stepsize_;
+  double t = t0;
+  std::array<double, 6> vec = vec0;
+
+  for (int i = 0; i < max_iter_; ++i) {
+    std::array<double, 3> bf = bfield_at(vec[0], vec[1], vec[2]);
+
+    std::array<double, 6> k1 = h * ode_lrz_bf(t,           vec,              bf);
+    std::array<double, 6> k2 = h * ode_lrz_bf(t + 0.5*h,   vec + (0.5*k1),   bf);
+    std::array<double, 6> k3 = h * ode_lrz_bf(t + 0.5*h,   vec + (0.5*k2),   bf);
+    std::array<double, 6> k4 = h * ode_lrz_bf(t + h,        vec + h*k3,        bf);
+    vec = vec + (1./6.) * (k1 + (2.*k2) + (2.*k3) + k4);
+    t  += h;
+    ++nsteps_;
+
+    const double r = vec[0];
+    if (r > escape_radius_) { particle_escaped_ = true; break; }
+    if (r < start_altitude_ + constants::RE)              break;
+  }
+  final_time_      = t;
+  final_sixvector_ = vec;
+}
+
+// ---------------------------------------------------------------------------
+// Boris pusher
+//
+// Implements the relativistic Boris algorithm in Cartesian coordinates:
+//   1. Convert state (r,θ,φ,p_r,p_θ,p_φ) → Cartesian (x,y,z,px,py,pz)
+//   2. Get B-field in Cartesian (1 evaluation per step)
+//   3. Apply Boris rotation: preserves |p| exactly (symplectic, 2nd-order)
+//   4. Advance position with updated velocity
+//   5. Convert back to spherical
+//
+// Sign convention: uses −charge_ for the Lorentz force (backtracking mode),
+// consistent with the existing ode_lrz implementation.
+// ---------------------------------------------------------------------------
+
+void TrajectoryTracer::evaluate_boris(const double &t0,
+                                       std::array<double, 6> &vec0) {
+  const double c2 = constants::SPEED_OF_LIGHT * constants::SPEED_OF_LIGHT;
+  const double mc2 = mass_ * mass_ * c2;
+
+  double h = stepsize_;
+  double t = t0;
+  std::array<double, 6> vec = vec0;
+
+  for (int i = 0; i < max_iter_; ++i) {
+    const double r = vec[0], theta = vec[1], phi = vec[2];
+    const double pr = vec[3], ptheta = vec[4], pphi = vec[5];
+
+    // --- Convert position and momentum to Cartesian ---
+    const double sT = sin(theta), cT = cos(theta);
+    const double sP = sin(phi),   cP = cos(phi);
+
+    const double x = r * sT * cP;
+    const double y = r * sT * sP;
+    const double z = r * cT;
+
+    // ê_r = (sT·cP, sT·sP, cT), ê_θ = (cT·cP, cT·sP, −sT), ê_φ = (−sP, cP, 0)
+    const double px = pr*sT*cP + ptheta*cT*cP - pphi*sP;
+    const double py = pr*sT*sP + ptheta*cT*sP + pphi*cP;
+    const double pz = pr*cT             - ptheta*sT;
+
+    // --- B-field: spherical → Cartesian ---
+    const auto bf_sph = bfield_at(r, theta, phi);
+    const double Br = bf_sph[0], Bt = bf_sph[1], Bp = bf_sph[2];
+    const double Bx = Br*sT*cP + Bt*cT*cP - Bp*sP;
+    const double By = Br*sT*sP + Bt*cT*sP + Bp*cP;
+    const double Bz = Br*cT             - Bt*sT;
+
+    // --- Boris rotation ---
+    // γ from current momentum
+    const double gamma = sqrt(1.0 + (px*px + py*py + pz*pz) / mc2);
+
+    // t = −q·B·dt / (2·γ·m)   [−q for backtracking]
+    const double fac = -charge_ * h / (2.0 * gamma * mass_);
+    const double tx = fac * Bx, ty = fac * By, tz = fac * Bz;
+
+    // s = 2t / (1 + |t|²)
+    const double t2   = tx*tx + ty*ty + tz*tz;
+    const double sfac = 2.0 / (1.0 + t2);
+    const double sx = sfac*tx, sy = sfac*ty, sz = sfac*tz;
+
+    // p' = p + p × t
+    const double ppx = px + (py*tz - pz*ty);
+    const double ppy = py + (pz*tx - px*tz);
+    const double ppz = pz + (px*ty - py*tx);
+
+    // p_new = p + p' × s
+    const double px_n = px + (ppy*sz - ppz*sy);
+    const double py_n = py + (ppz*sx - ppx*sz);
+    const double pz_n = pz + (ppx*sy - ppy*sx);
+
+    // --- Advance position ---
+    const double gamma_n = sqrt(1.0 + (px_n*px_n + py_n*py_n + pz_n*pz_n) / mc2);
+    const double vfac = h / (gamma_n * mass_);
+    const double x_n = x + px_n * vfac;
+    const double y_n = y + py_n * vfac;
+    const double z_n = z + pz_n * vfac;
+
+    // --- Convert back to spherical ---
+    const double r_n = sqrt(x_n*x_n + y_n*y_n + z_n*z_n);
+    const double theta_n = acos(z_n / r_n);
+    const double phi_n   = atan2(y_n, x_n);
+    const double sT_n = sin(theta_n), cT_n = cos(theta_n);
+    const double sP_n = sin(phi_n),   cP_n = cos(phi_n);
+
+    // p_sph = R^T · p_cart  (orthonormal → simple transpose)
+    const double pr_n     =  px_n*sT_n*cP_n + py_n*sT_n*sP_n + pz_n*cT_n;
+    const double ptheta_n =  px_n*cT_n*cP_n + py_n*cT_n*sP_n - pz_n*sT_n;
+    const double pphi_n   = -px_n*sP_n       + py_n*cP_n;
+
+    vec = {r_n, theta_n, phi_n, pr_n, ptheta_n, pphi_n};
+    t  += h;
+    ++nsteps_;
+
+    if (r_n > escape_radius_)                      { particle_escaped_ = true; break; }
+    if (r_n < start_altitude_ + constants::RE)       break;
+  }
+  final_time_      = t;
+  final_sixvector_ = vec;
+}
+
+// ---------------------------------------------------------------------------
+// Adaptive RK45 (Dormand-Prince / DOPRI5)
+//
+// Evaluates B-field at each of the 7 stages (no frozen-field approximation)
+// for accurate error estimates. Uses FSAL: k7 of step n is k1 of step n+1.
+//
+// Step-size control: h_new = h · clamp(S·ε^{−1/5}, 0.1, 5)
+//   where ε = RMS of component-wise scaled error.
+//
+// Dorman-Prince error coefficients (e = b5 − b4):
+//   e1 = 71/57600,  e3 = −71/16695,  e4 = 71/1920,
+//   e5 = −17253/339200,  e6 = 22/525,  e7 = −1/40
+// ---------------------------------------------------------------------------
+
+void TrajectoryTracer::evaluate_rk45(const double &t0,
+                                      std::array<double, 6> &vec0) {
+  // Dormand-Prince coefficients
+  constexpr double A21 = 1./5.;
+  constexpr double A31 = 3./40.,       A32 = 9./40.;
+  constexpr double A41 = 44./45.,      A42 = -56./15.,     A43 = 32./9.;
+  constexpr double A51 = 19372./6561., A52 = -25360./2187., A53 = 64448./6561., A54 = -212./729.;
+  constexpr double A61 = 9017./3168.,  A62 = -355./33.,    A63 = 46732./5247.,
+                   A64 = 49./176.,     A65 = -5103./18656.;
+  // 5th-order weights (also RK4-step for FSAL advance)
+  constexpr double B1 = 35./384., B3 = 500./1113., B4 = 125./192.,
+                   B5 = -2187./6784., B6 = 11./84.;
+  // Error = b5 − b4
+  constexpr double E1 =  71./57600.,   E3 = -71./16695.,  E4 =  71./1920.,
+                   E5 = -17253./339200., E6 = 22./525.,   E7 = -1./40.;
+
+  constexpr double SAFETY = 0.9, MAX_FAC = 5.0, MIN_FAC = 0.1;
+  constexpr double ERR_EXP = -0.2;  // −1/5
+
+  double h = stepsize_;     // initial (and current) step size
+  double t = t0;
+  std::array<double, 6> vec = vec0;
+
+  // Compute k1 once; FSAL reuses it as k1 of the next step.
+  std::array<double, 6> k1 = ode_lrz(t, vec);
+
+  int accepted_steps = 0;
+
+  while (accepted_steps < max_iter_) {
+    // Clamp step to avoid overshooting max_time (approximated by max_iter_*stepsize_).
+    const double t_end = t0 + max_iter_ * stepsize_;
+    if (t + h > t_end) h = t_end - t;
+    if (h <= 0.0) break;
+
+    // --- Compute stages ---
+    std::array<double, 6> k2 = ode_lrz(t + h*1./5.,
+        vec + (h*A21)*k1);
+    std::array<double, 6> k3 = ode_lrz(t + h*3./10.,
+        vec + (h*A31)*k1 + (h*A32)*k2);
+    std::array<double, 6> k4 = ode_lrz(t + h*4./5.,
+        vec + (h*A41)*k1 + (h*A42)*k2 + (h*A43)*k3);
+    std::array<double, 6> k5 = ode_lrz(t + h*8./9.,
+        vec + (h*A51)*k1 + (h*A52)*k2 + (h*A53)*k3 + (h*A54)*k4);
+    std::array<double, 6> k6 = ode_lrz(t + h,
+        vec + (h*A61)*k1 + (h*A62)*k2 + (h*A63)*k3 + (h*A64)*k4 + (h*A65)*k5);
+
+    // 5th-order solution (also used as the advance)
+    std::array<double, 6> y_new = vec +
+        (h*B1)*k1 + (h*B3)*k3 + (h*B4)*k4 + (h*B5)*k5 + (h*B6)*k6;
+
+    // k7 = f(y_new) — needed for error estimate and FSAL
+    std::array<double, 6> k7 = ode_lrz(t + h, y_new);
+
+    // --- Error estimate (RMS of scaled component errors) ---
+    double err_sq = 0.0;
+    for (int j = 0; j < 6; ++j) {
+      double err_j = h * (E1*k1[j] + E3*k3[j] + E4*k4[j] +
+                          E5*k5[j] + E6*k6[j] + E7*k7[j]);
+      double sc = atol_ + rtol_ * std::max(std::abs(vec[j]), std::abs(y_new[j]));
+      err_sq += (err_j / sc) * (err_j / sc);
+    }
+    double err_norm = sqrt(err_sq / 6.0);
+
+    // --- Step-size factor ---
+    double fac = SAFETY * pow(err_norm, ERR_EXP);
+    fac = std::min(MAX_FAC, std::max(MIN_FAC, fac));
+
+    if (err_norm <= 1.0) {
+      // Accept step
+      vec = y_new;
+      t  += h;
+      k1  = k7;   // FSAL
+      ++accepted_steps;
+      ++nsteps_;
+
+      const double r = vec[0];
+      if (r > escape_radius_) { particle_escaped_ = true; break; }
+      if (r < start_altitude_ + constants::RE)              break;
+    }
+    // (rejected steps: just re-try with smaller h)
+    h *= fac;
+  }
+
+  final_time_      = t;
+  final_sixvector_ = vec;
+}
+
+// ---------------------------------------------------------------------------
+// Dispatcher: evaluate_and_get_trajectory()
+// ---------------------------------------------------------------------------
+
+std::map<std::string, std::vector<double>>
+TrajectoryTracer::evaluate_and_get_trajectory(double &t0,
+                                               std::array<double, 6> &vec0) {
+  switch (solver_type_) {
+    case 'b': return evaluate_and_get_trajectory_boris(t0, vec0);
+    case 'a': return evaluate_and_get_trajectory_rk45(t0, vec0);
+    default:  return evaluate_and_get_trajectory_rk4(t0, vec0);
+  }
+}
+
+// Helper to build the return map.
+std::map<std::string, std::vector<double>>
+TrajectoryTracer::make_traj_map(
+    std::vector<double> &t_arr,     std::vector<double> &r_arr,
+    std::vector<double> &theta_arr, std::vector<double> &phi_arr,
+    std::vector<double> &pr_arr,    std::vector<double> &ptheta_arr,
+    std::vector<double> &pphi_arr) {
+  return {{"t", t_arr},     {"r", r_arr},   {"theta", theta_arr},
+          {"phi", phi_arr}, {"pr", pr_arr}, {"ptheta", ptheta_arr},
+          {"pphi", pphi_arr}};
+}
+
+// ---------------------------------------------------------------------------
+// get_trajectory variants
+// ---------------------------------------------------------------------------
+
+std::map<std::string, std::vector<double>>
+TrajectoryTracer::evaluate_and_get_trajectory_rk4(double &t0,
+                                                    std::array<double, 6> &vec0) {
+  double h = stepsize_;
+  double t = t0;
+  std::array<double, 6> vec = vec0;
+
+  std::vector<double> t_arr, r_arr, theta_arr, phi_arr, pr_arr, ptheta_arr, pphi_arr;
+  t_arr.reserve(max_iter_); r_arr.reserve(max_iter_);
+  theta_arr.reserve(max_iter_); phi_arr.reserve(max_iter_);
+  pr_arr.reserve(max_iter_); ptheta_arr.reserve(max_iter_);
+  pphi_arr.reserve(max_iter_);
+
+  for (int i = 0; i < max_iter_; ++i) {
+    t_arr.push_back(t);
+    r_arr.push_back(vec[0]); theta_arr.push_back(vec[1]); phi_arr.push_back(vec[2]);
+    pr_arr.push_back(vec[3]); ptheta_arr.push_back(vec[4]); pphi_arr.push_back(vec[5]);
+
+    std::array<double, 6> k1 = ode_lrz(t, vec);
+    std::array<double, 6> k2 = ode_lrz(t + 0.5*h, vec + (0.5*h)*k1);
+    std::array<double, 6> k3 = ode_lrz(t + 0.5*h, vec + (0.5*h)*k2);
+    std::array<double, 6> k4 = ode_lrz(t + h,     vec + h*k3);
+    vec = vec + (h/6.) * (k1 + (2.*k2) + (2.*k3) + k4);
+    t  += h;
+    ++nsteps_;
+
+    const double r = vec[0];
+    if (r > escape_radius_) { particle_escaped_ = true; break; }
+    if (r < start_altitude_ + constants::RE)              break;
+  }
+  final_time_ = t; final_sixvector_ = vec;
+  return make_traj_map(t_arr, r_arr, theta_arr, phi_arr, pr_arr, ptheta_arr, pphi_arr);
+}
+
+std::map<std::string, std::vector<double>>
+TrajectoryTracer::evaluate_and_get_trajectory_boris(double &t0,
+                                                     std::array<double, 6> &vec0) {
+  const double c2  = constants::SPEED_OF_LIGHT * constants::SPEED_OF_LIGHT;
+  const double mc2 = mass_ * mass_ * c2;
+  const double h   = stepsize_;
+  double t = t0;
+  std::array<double, 6> vec = vec0;
+
+  std::vector<double> t_arr, r_arr, theta_arr, phi_arr, pr_arr, ptheta_arr, pphi_arr;
+  t_arr.reserve(max_iter_); r_arr.reserve(max_iter_);
+  theta_arr.reserve(max_iter_); phi_arr.reserve(max_iter_);
+  pr_arr.reserve(max_iter_); ptheta_arr.reserve(max_iter_);
+  pphi_arr.reserve(max_iter_);
+
+  for (int i = 0; i < max_iter_; ++i) {
+    t_arr.push_back(t);
+    r_arr.push_back(vec[0]); theta_arr.push_back(vec[1]); phi_arr.push_back(vec[2]);
+    pr_arr.push_back(vec[3]); ptheta_arr.push_back(vec[4]); pphi_arr.push_back(vec[5]);
+
+    const double r = vec[0], theta = vec[1], phi = vec[2];
+    const double pr = vec[3], ptheta = vec[4], pphi = vec[5];
+
+    const double sT = sin(theta), cT = cos(theta), sP = sin(phi), cP = cos(phi);
+
+    const double x = r*sT*cP, y = r*sT*sP, z = r*cT;
+    const double px = pr*sT*cP + ptheta*cT*cP - pphi*sP;
+    const double py = pr*sT*sP + ptheta*cT*sP + pphi*cP;
+    const double pz = pr*cT - ptheta*sT;
+
+    const auto bf_sph = bfield_at(r, theta, phi);
+    const double Br = bf_sph[0], Bt = bf_sph[1], Bp = bf_sph[2];
+    const double Bx = Br*sT*cP + Bt*cT*cP - Bp*sP;
+    const double By = Br*sT*sP + Bt*cT*sP + Bp*cP;
+    const double Bz = Br*cT - Bt*sT;
+
+    const double gamma = sqrt(1.0 + (px*px + py*py + pz*pz) / mc2);
+    const double fac   = -charge_ * h / (2.0 * gamma * mass_);
+    const double tx = fac*Bx, ty = fac*By, tz = fac*Bz;
+    const double t2 = tx*tx + ty*ty + tz*tz, sfac = 2.0/(1.0+t2);
+    const double sx = sfac*tx, sy = sfac*ty, sz = sfac*tz;
+
+    const double ppx = px + (py*tz - pz*ty);
+    const double ppy = py + (pz*tx - px*tz);
+    const double ppz = pz + (px*ty - py*tx);
+
+    const double px_n = px + (ppy*sz - ppz*sy);
+    const double py_n = py + (ppz*sx - ppx*sz);
+    const double pz_n = pz + (ppx*sy - ppy*sx);
+
+    const double g_n  = sqrt(1.0 + (px_n*px_n + py_n*py_n + pz_n*pz_n) / mc2);
+    const double vfac = h / (g_n * mass_);
+    const double x_n  = x + px_n*vfac, y_n = y + py_n*vfac, z_n = z + pz_n*vfac;
+
+    const double r_n     = sqrt(x_n*x_n + y_n*y_n + z_n*z_n);
+    const double theta_n = acos(z_n / r_n);
+    const double phi_n   = atan2(y_n, x_n);
+    const double sT_n = sin(theta_n), cT_n = cos(theta_n);
+    const double sP_n = sin(phi_n),   cP_n = cos(phi_n);
+
+    const double pr_n     =  px_n*sT_n*cP_n + py_n*sT_n*sP_n + pz_n*cT_n;
+    const double ptheta_n =  px_n*cT_n*cP_n + py_n*cT_n*sP_n - pz_n*sT_n;
+    const double pphi_n   = -px_n*sP_n       + py_n*cP_n;
+
+    vec = {r_n, theta_n, phi_n, pr_n, ptheta_n, pphi_n};
+    t  += h;
+    ++nsteps_;
+
+    if (r_n > escape_radius_)                       { particle_escaped_ = true; break; }
+    if (r_n < start_altitude_ + constants::RE)        break;
+  }
+  final_time_ = t; final_sixvector_ = vec;
+  return make_traj_map(t_arr, r_arr, theta_arr, phi_arr, pr_arr, ptheta_arr, pphi_arr);
+}
+
+std::map<std::string, std::vector<double>>
+TrajectoryTracer::evaluate_and_get_trajectory_rk45(double &t0,
+                                                    std::array<double, 6> &vec0) {
+  constexpr double A21 = 1./5.;
+  constexpr double A31 = 3./40.,       A32 = 9./40.;
+  constexpr double A41 = 44./45.,      A42 = -56./15.,     A43 = 32./9.;
+  constexpr double A51 = 19372./6561., A52 = -25360./2187., A53 = 64448./6561., A54 = -212./729.;
+  constexpr double A61 = 9017./3168.,  A62 = -355./33.,    A63 = 46732./5247.,
+                   A64 = 49./176.,     A65 = -5103./18656.;
+  constexpr double B1 = 35./384., B3 = 500./1113., B4 = 125./192.,
+                   B5 = -2187./6784., B6 = 11./84.;
+  constexpr double E1 =  71./57600.,   E3 = -71./16695.,  E4 =  71./1920.,
+                   E5 = -17253./339200., E6 = 22./525.,   E7 = -1./40.;
+  constexpr double SAFETY = 0.9, MAX_FAC = 5.0, MIN_FAC = 0.1, ERR_EXP = -0.2;
+
+  double h = stepsize_;
+  double t = t0;
+  std::array<double, 6> vec = vec0;
+
+  std::vector<double> t_arr, r_arr, theta_arr, phi_arr, pr_arr, ptheta_arr, pphi_arr;
+
+  std::array<double, 6> k1 = ode_lrz(t, vec);
+  int accepted_steps = 0;
+
+  while (accepted_steps < max_iter_) {
+    const double t_end = t0 + max_iter_ * stepsize_;
+    if (t + h > t_end) h = t_end - t;
+    if (h <= 0.0) break;
+
+    std::array<double, 6> k2 = ode_lrz(t+h*1./5.,   vec + (h*A21)*k1);
+    std::array<double, 6> k3 = ode_lrz(t+h*3./10.,  vec + (h*A31)*k1 + (h*A32)*k2);
+    std::array<double, 6> k4 = ode_lrz(t+h*4./5.,   vec + (h*A41)*k1 + (h*A42)*k2 + (h*A43)*k3);
+    std::array<double, 6> k5 = ode_lrz(t+h*8./9.,   vec + (h*A51)*k1 + (h*A52)*k2 + (h*A53)*k3 + (h*A54)*k4);
+    std::array<double, 6> k6 = ode_lrz(t+h,         vec + (h*A61)*k1 + (h*A62)*k2 + (h*A63)*k3 + (h*A64)*k4 + (h*A65)*k5);
+    std::array<double, 6> y_new = vec + (h*B1)*k1 + (h*B3)*k3 + (h*B4)*k4 + (h*B5)*k5 + (h*B6)*k6;
+    std::array<double, 6> k7 = ode_lrz(t+h, y_new);
+
+    double err_sq = 0.0;
+    for (int j = 0; j < 6; ++j) {
+      double ej = h * (E1*k1[j] + E3*k3[j] + E4*k4[j] + E5*k5[j] + E6*k6[j] + E7*k7[j]);
+      double sc  = atol_ + rtol_ * std::max(std::abs(vec[j]), std::abs(y_new[j]));
+      err_sq += (ej / sc) * (ej / sc);
+    }
+    double err_norm = sqrt(err_sq / 6.0);
+    double fac = std::min(MAX_FAC, std::max(MIN_FAC, SAFETY * pow(err_norm, ERR_EXP)));
+
+    if (err_norm <= 1.0) {
+      t_arr.push_back(t);
+      r_arr.push_back(vec[0]); theta_arr.push_back(vec[1]); phi_arr.push_back(vec[2]);
+      pr_arr.push_back(vec[3]); ptheta_arr.push_back(vec[4]); pphi_arr.push_back(vec[5]);
+
+      vec = y_new;
+      t  += h;
+      k1  = k7;
+      ++accepted_steps;
+      ++nsteps_;
+
+      const double r = vec[0];
+      if (r > escape_radius_) { particle_escaped_ = true; break; }
+      if (r < start_altitude_ + constants::RE)              break;
+    }
+    h *= fac;
+  }
+  final_time_ = t; final_sixvector_ = vec;
+  return make_traj_map(t_arr, r_arr, theta_arr, phi_arr, pr_arr, ptheta_arr, pphi_arr);
+}
