@@ -19,7 +19,8 @@ namespace igrf_const {
 // degree of truncation for IGRF model
 constexpr int MAXDEG = 13;
 // maximum number of Gaussian coefficients
-constexpr int MAXCOEFF = (MAXDEG * (MAXDEG + 2) + 1);
+// shval3() indexes gh_arr up to (MAXDEG*(MAXDEG+2)+2); use 210 for safety.
+constexpr int MAXCOEFF = 210;
 // the longest epoch
 constexpr double MAXEPOCH = 2020.00;
 

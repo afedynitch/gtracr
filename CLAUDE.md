@@ -141,19 +141,19 @@ az_grid, zen_grid, cutoff_grid = gmrc.interpolate_results()
 
 ## Known Issues and Technical Debt
 
-### `pTrajectoryTracer` (Python) — Testing Only
-The Python `pTrajectoryTracer` in `gtracr/lib/trajectory_tracer.py` is a slow (~100×) reference
-implementation for debugging. It also has a minor escape condition bug:
-`if r > EARTH_RADIUS + self.escape_radius` should be `if r > self.escape_radius` (since
-`escape_radius` is already an absolute radius, not an altitude). This matters when comparing
-Python vs. C++ results.
-
 ### Horizontal trajectories at the equator terminate immediately
 For `zenith_angle=90` (horizontal) at equatorial latitudes, the Lorentz force pushes the
 back-traced proton radially inward in the first RK4 step, immediately triggering the atmosphere
-termination condition. This is physically correct (East-West geomagnetic asymmetry), but
-means such trajectories are useless for visualization. Use mid-latitude locations (e.g.
-`location_name="Kamioka"`) with `azimuth_angle=0` for horizontal trajectories.
+termination condition. This is physically correct (East-West geomagnetic asymmetry): the
+Störmer cutoff for eastward horizontal at the equator is ~52 GV (IGRF), so particles below
+that rigidity are genuinely forbidden. The 1-step termination happens because `r₀ = threshold`
+exactly — any inward motion fires the condition. Trajectories are useless for visualization
+in this regime; use mid-latitude locations (e.g. `location_name="Kamioka"`) or
+`azimuth_angle=270` (westward) for horizontal trajectory visualization.
+
+### TODO: Cache IGRF `TrajectoryTracer` in `GMRC` (bottleneck #1)
+Currently `GMRC._evaluate_single_direction()` reconstructs a new `TrajectoryTracer` (and
+reloads `igrf13.json`) for every trajectory. Cache it across same-date trajectories.
 
 ---
 
@@ -165,12 +165,11 @@ means such trajectories are useless for visualization. Use mid-latitude location
 
 ### Bottleneck Map (ordered by impact)
 
-| # | Bottleneck | Location | Status | Impact |
-|---|-----------|----------|--------|--------|
-| 1 | IGRF object reconstructed per trajectory | `geomagnetic_cutoffs.py` | Open | Very High |
-| 2 | Sequential MC loop, no parallelism | `geomagnetic_cutoffs.py` | **Fixed** (ProcessPoolExecutor) | Very High |
-| 3 | IGRF Legendre evaluation per RK step (4×) | `igrf.cpp:shval3` | Open | Medium |
-| 4 | 7 separate std::vector allocations for trajectory | `TrajectoryTracer.cpp:390` | Open | Low |
+| # | Bottleneck | Location | Impact |
+|---|-----------|----------|--------|
+| 1 | IGRF object reconstructed per trajectory | `geomagnetic_cutoffs.py` | Very High |
+| 2 | IGRF Legendre evaluation per RK step (4×) | `igrf.cpp:shval3` | Medium |
+| 3 | 7 separate std::vector allocations for trajectory | `TrajectoryTracer.cpp:390` | Low |
 
 ### Improvement Roadmap
 

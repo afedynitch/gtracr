@@ -72,7 +72,7 @@ def dec_to_dms(lat_dec, lng_dec):
     lng_sec = int(np.floor((lng_dec - lng_deg - (lng_min / 60.)) * 60.))
 
     # add east or west depending on sign of lng_dec
-    lng_symb = "E" if lat_dec >= 0 else "W"
+    lng_symb = "E" if lng_dec >= 0 else "W"
 
     lng_dms = "{:d}°{:d}\'{:d}\"{:s}".format(lng_deg, lng_min, lng_sec,
                                              lng_symb)

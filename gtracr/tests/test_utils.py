@@ -40,28 +40,17 @@ def test_dec_to_dms_north_east():
 
 
 def test_dec_to_dms_south_west():
-    '''
-    Negative latitude → "S" for lat.
-    Bug in dec_to_dms: lng_symb checks lat_dec instead of lng_dec,
-    so we test against the actual (buggy) output.
-    With lat=-24, lng=-24 → lat "S", lng also "W" (because lat_dec < 0).
-    '''
+    '''Negative lat and negative lng → "S" for lat, "W" for lng.'''
     lat_dms, lng_dms = dec_to_dms(-24.68, -24.68)
     assert "S" in lat_dms
-    # Bug: lng_symb uses lat_dec sign → negative lat gives "W" for lng too
     assert "W" in lng_dms
 
 
-def test_dec_to_dms_bug_lng_uses_lat_sign():
-    '''
-    Demonstrate the known bug: lng_symb checks lat_dec, not lng_dec.
-    Positive lat + negative lng should give "W" for lng, but the bug
-    makes it "E" because lat_dec > 0.
-    '''
+def test_dec_to_dms_positive_lat_negative_lng():
+    '''Positive lat + negative lng → "N" for lat, "W" for lng.'''
     lat_dms, lng_dms = dec_to_dms(36.0, -113.0)
     assert "N" in lat_dms
-    # Bug: positive lat_dec used for lng symbol → "E" even though lng is negative
-    assert "E" in lng_dms
+    assert "W" in lng_dms
 
 
 def test_location_dict_contents():

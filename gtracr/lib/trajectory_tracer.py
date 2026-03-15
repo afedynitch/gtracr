@@ -70,8 +70,8 @@ class pTrajectoryTracer:
                  max_step=10000,
                  bfield_type="d",
                  igrf_params=None):
-        self.charge = charge * ELEMENTARY_CHARGE  # convert to coulombs
-        self.mass = mass * KG_PER_GEVC2  # convert to kg
+        self.charge = charge  # already in SI (coulombs)
+        self.mass = mass  # already in SI (kg)
         self.start_altitude = start_altitude
         self.escape_radius = escape_radius
         self.stepsize = stepsize
@@ -205,7 +205,7 @@ class pTrajectoryTracer:
             r = vec[0]  # for readability
             # if particle has reached escape radius or not
             # then trajectory is allowed
-            if r > EARTH_RADIUS + self.escape_radius:
+            if r > self.escape_radius:
                 self.particle_escaped = True
                 break
             # if particle has came back to earth
@@ -270,7 +270,7 @@ class pTrajectoryTracer:
             r = vec[0]  # for readability
             # if particle has reached escape radius or not
             # then trajectory is allowed
-            if r > EARTH_RADIUS + self.escape_radius:
+            if r > self.escape_radius:
                 self.particle_escaped = True
                 break
             # if particle has came back to earth
