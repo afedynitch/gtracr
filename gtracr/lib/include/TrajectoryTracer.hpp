@@ -181,6 +181,14 @@ class TrajectoryTracer {
                               const std::array<double, 3>& mom_unit,
                               const std::vector<double>& rigidities,
                               double mom_factor);
+
+  // Binary-search variant: expects rigidities sorted ascending (LOW → HIGH).
+  // Tests min rigidity first (cheap escape for most of the sky).
+  // Returns the lowest rigidity for which the particle escapes, or 0.0.
+  double find_cutoff_rigidity_bisect(const std::array<double, 3>& pos,
+                                     const std::array<double, 3>& mom_unit,
+                                     const std::vector<double>& rigidities_asc,
+                                     double mom_factor);
 };
 
 #endif  //__TRAJECTORYTRACER_HPP_

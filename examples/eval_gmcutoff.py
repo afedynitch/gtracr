@@ -28,26 +28,38 @@ def _run_gmrc(gmrc, args):
     ngrid_zenith = 180
     locname = gmrc.location
 
-    gmrc.evaluate()
+    if args.eval_mode == "batch":
+        gmrc.evaluate_batch()
+    else:
+        gmrc.evaluate()
 
-    plot_gmrc_scatter(gmrc.data_dict,
-                      locname,
-                      plabel,
-                      bfield_type=args.bfield_type,
-                      iter_num=args.iter_num,
-                      show_plot=args.show_plot)
+    print("Plotting...")
 
-    interpd_gmrc_data = gmrc.interpolate_results(
-        ngrid_azimuth=ngrid_azimuth,
-        ngrid_zenith=ngrid_zenith,
-    )
+    if args.eval_mode == "batch":
+        gmrc_grids = gmrc.bin_results(
+            nbins_azimuth=ngrid_azimuth,
+            nbins_zenith=ngrid_zenith,
+        )
+    else:
+        plot_gmrc_scatter(gmrc.data_dict,
+                          locname,
+                          plabel,
+                          bfield_type=args.bfield_type,
+                          iter_num=args.iter_num,
+                          show_plot=args.show_plot)
+        gmrc_grids = gmrc.interpolate_results(
+            ngrid_azimuth=ngrid_azimuth,
+            ngrid_zenith=ngrid_zenith,
+        )
 
-    plot_gmrc_heatmap(interpd_gmrc_data,
+    plot_gmrc_heatmap(gmrc_grids,
                       gmrc.rigidity_list,
                       locname=locname,
                       plabel=plabel,
                       bfield_type=args.bfield_type,
                       show_plot=args.show_plot)
+
+    print("Done.")
 
 
 def eval_gmrc(args):
@@ -143,6 +155,13 @@ if __name__ == "__main__":
         choices=["igrf", "table"],
         help="Field evaluation mode: igrf (direct IGRF, default) "
              "or table (precomputed 3-D lookup table, shared across threads).")
+    parser.add_argument(
+        '--eval-mode',
+        dest="eval_mode",
+        default="batch",
+        choices=["batch", "legacy"],
+        help="Evaluation mode: batch (default, entire MC loop in C++) "
+             "or legacy (Python MC loop with per-direction C++ calls).")
 
     args = parser.parse_args()
     eval_gmrc(args)

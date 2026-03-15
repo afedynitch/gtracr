@@ -9,7 +9,7 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 
 from gtracr.trajectory import Trajectory
 from gtracr.lib._libgtracr import TrajectoryTracer as CppTrajectoryTracer
-from gtracr.lib.constants import ELEMENTARY_CHARGE, KG_PER_GEVC2, KG_M_S_PER_GEVC
+from gtracr.lib.constants import ELEMENTARY_CHARGE, KG_PER_GEVC2, KG_M_S_PER_GEVC, EARTH_RADIUS
 
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
@@ -150,6 +150,8 @@ def _evaluate_direction_cpp_only(args):
             solver_char, atol, rtol,
         )
         _thread_local.tracer = tracer
+    else:
+        tracer.set_start_altitude(start_alt)
 
     rcutoff = tracer.find_cutoff_rigidity(pos, mom_unit, rigidity_list, mom_factor)
     return (azimuth, zenith, rcutoff)
@@ -361,12 +363,105 @@ class GMRC():
                     self.data_dict["zenith"][i] = zen
                     self.data_dict["rcutoff"][i] = rc
 
+    def evaluate_batch(self, dt=1e-5, max_time=1., base_seed=None):
+        '''
+        Evaluate rigidity cutoffs entirely in C++ (batch mode).
+
+        The entire MC loop — RNG, coordinate transforms, rigidity scanning,
+        and threading — runs in a single C++ call, eliminating all Python
+        overhead per ray.
+
+        Parameters
+        ----------
+        dt : float
+            Step size for trajectory integration (default 1e-5 s).
+        max_time : float
+            Maximum integration time per trajectory (default 1 s).
+        base_seed : int, optional
+            RNG seed for reproducibility. If None, a random seed is used.
+        '''
+        import time as _time
+        from gtracr.lib._libgtracr import (
+            BatchGMRCParams, batch_gmrc_evaluate as _batch_eval)
+        from gtracr.utils import location_dict, particle_dict, ymd_to_dec
+
+        t_wall_start = _time.monotonic()
+
+        print(f"Initializing batch GMRC for {self.location} "
+              f"({self.iter_num} samples, {self.n_workers} threads)...")
+
+        datapath = os.path.join(CURRENT_DIR, "data")
+        dec_date = float(ymd_to_dec(self.date))
+        igrf_params = (datapath, dec_date)
+
+        shared_table, table_params = _get_or_generate_igrf_table(
+            datapath, dec_date)
+
+        loc = location_dict[self.location]
+        particle = particle_dict[self.plabel]
+
+        if base_seed is None:
+            base_seed = int(np.random.default_rng().integers(0, 2**63))
+
+        p = BatchGMRCParams()
+        p.latitude = loc.latitude
+        p.longitude = loc.longitude
+        p.detector_alt = loc.altitude       # km
+        p.particle_alt = self.palt           # km (GMRC stores km)
+        p.escape_radius = 10.0 * EARTH_RADIUS
+        p.charge = float(particle.charge)    # units of e
+        p.mass = particle.mass               # GeV/c^2
+        p.min_rigidity = self.rmin
+        p.max_rigidity = self.rmax
+        p.delta_rigidity = self.rdelta
+        p.dt = dt
+        p.max_time = max_time
+        p.solver_type = self.solver_char
+        p.atol = self.atol
+        p.rtol = self.rtol
+        p.n_samples = self.iter_num
+        p.n_threads = self.n_workers
+        p.max_attempts_factor = 30
+        p.base_seed = base_seed
+
+        t_init_done = _time.monotonic()
+        print(f"Initialized in {t_init_done - t_wall_start:.2f}s. "
+              f"Running cutoff calculations...")
+
+        zenith, azimuth, rcutoff, total_traj = _batch_eval(
+            shared_table, table_params, igrf_params, p)
+
+        t_calc_done = _time.monotonic()
+        n = len(zenith)
+        calc_elapsed = t_calc_done - t_init_done
+        total_elapsed = t_calc_done - t_wall_start
+        ktraj_per_s = (total_traj / 1000.) / calc_elapsed if calc_elapsed > 0 else float('inf')
+
+        print(f"Completed {n} cutoffs in {calc_elapsed:.2f}s "
+              f"({total_traj} trajectories, {ktraj_per_s:.1f}k traj/s "
+              f"across {self.n_workers} threads, {total_elapsed:.2f}s total)")
+
+        # Store results (may be shorter than iter_num if safety limit hit)
+        self.data_dict = {
+            "azimuth": azimuth,
+            "zenith": zenith,
+            "rcutoff": rcutoff,
+        }
+        if n < self.iter_num:
+            import warnings
+            warnings.warn(
+                f"Batch GMRC: only {n}/{self.iter_num} successful samples "
+                f"(safety limit reached). Results may be sparse.")
+
     def interpolate_results(self,
                             method="linear",
                             ngrid_azimuth=70,
                             ngrid_zenith=70):
         '''
         Interpolate the rigidity cutoffs using `scipy.interpolate.griddata`
+
+        Legacy method kept for backward compatibility; prefer
+        ``bin_results`` for large sample counts.
 
         Parameters
         ----------
@@ -403,3 +498,52 @@ class GMRC():
                                 method=method)
 
         return (azimuth_grid, zenith_grid, rcutoff_grid)
+
+    def bin_results(self, nbins_azimuth=72, nbins_zenith=36):
+        '''
+        Bin the MC samples into a regular (azimuth, zenith) grid and compute
+        the mean cutoff rigidity per bin.  Much faster than scattered
+        interpolation and more appropriate when the sample count is large.
+
+        Parameters
+        ----------
+        nbins_azimuth : int
+            Number of azimuth bins (default 72, i.e. 5-degree bins).
+        nbins_zenith : int
+            Number of zenith bins (default 36, i.e. 5-degree bins).
+
+        Returns
+        -------
+        (azimuth_centres, zenith_centres, rcutoff_grid) where
+        azimuth_centres and zenith_centres are 1-D bin-centre arrays and
+        rcutoff_grid is shape (nbins_zenith, nbins_azimuth).  Bins with
+        no samples are filled with NaN.
+        '''
+        az  = self.data_dict["azimuth"]
+        zen = self.data_dict["zenith"]
+        rc  = self.data_dict["rcutoff"]
+
+        az_edges  = np.linspace(0., 360., nbins_azimuth + 1)
+        zen_edges = np.linspace(0., 180., nbins_zenith + 1)
+
+        # Digitize: bin index 1..N for in-range, 0 or N+1 for out-of-range
+        az_idx  = np.digitize(az,  az_edges)  - 1  # 0-based
+        zen_idx = np.digitize(zen, zen_edges) - 1
+
+        # Clamp to valid range
+        az_idx  = np.clip(az_idx,  0, nbins_azimuth  - 1)
+        zen_idx = np.clip(zen_idx, 0, nbins_zenith - 1)
+
+        # Accumulate sum and count per bin
+        sum_grid   = np.zeros((nbins_zenith, nbins_azimuth))
+        count_grid = np.zeros((nbins_zenith, nbins_azimuth))
+        np.add.at(sum_grid,   (zen_idx, az_idx), rc)
+        np.add.at(count_grid, (zen_idx, az_idx), 1)
+
+        with np.errstate(invalid='ignore'):
+            rcutoff_grid = sum_grid / count_grid  # NaN where count == 0
+
+        az_centres  = 0.5 * (az_edges[:-1]  + az_edges[1:])
+        zen_centres = 0.5 * (zen_edges[:-1] + zen_edges[1:])
+
+        return (az_centres, zen_centres, rcutoff_grid)

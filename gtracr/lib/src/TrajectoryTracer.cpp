@@ -261,6 +261,49 @@ double TrajectoryTracer::find_cutoff_rigidity(
 }
 
 // ---------------------------------------------------------------------------
+// find_cutoff_rigidity_bisect — binary search variant
+// ---------------------------------------------------------------------------
+
+double TrajectoryTracer::find_cutoff_rigidity_bisect(
+    const std::array<double, 3>& pos,
+    const std::array<double, 3>& mom_unit,
+    const std::vector<double>& rigidities_asc,
+    double mom_factor) {
+  if (rigidities_asc.empty()) return 0.0;
+
+  auto test_escape = [&](int idx) -> bool {
+    double rig = rigidities_asc[idx];
+    double mom_si = rig * mom_factor;
+    std::array<double, 6> vec0 = {{
+        pos[0], pos[1], pos[2],
+        mom_unit[0] * mom_si, mom_unit[1] * mom_si, mom_unit[2] * mom_si}};
+    particle_escaped_ = false;
+    nsteps_ = 0;
+    evaluate(0.0, vec0);
+    return particle_escaped_;
+  };
+
+  int lo = 0;                                             // lowest rigidity
+  int hi = static_cast<int>(rigidities_asc.size()) - 1;  // highest rigidity
+
+  // Fast path: if min rigidity already escapes, cutoff ≤ min
+  if (test_escape(lo)) return rigidities_asc[lo];
+  // If max rigidity doesn't escape, cutoff > max
+  if (!test_escape(hi)) return 0.0;
+
+  // Invariant: rigidities_asc[lo] forbidden, rigidities_asc[hi] escapes
+  while (hi - lo > 1) {
+    int mid = (lo + hi) / 2;
+    if (test_escape(mid))
+      hi = mid;
+    else
+      lo = mid;
+  }
+
+  return rigidities_asc[hi];
+}
+
+// ---------------------------------------------------------------------------
 // Frozen-field RK4 (templated on Record)
 //
 // B-field is evaluated once per step at the step-start position and held

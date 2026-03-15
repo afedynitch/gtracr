@@ -1,4 +1,5 @@
 
+#include "BatchGMRC.hpp"
 #include "MagneticField.hpp"
 #include "TrajectoryTracer.hpp"
 #include "igrf.hpp"
@@ -40,6 +41,69 @@ PYBIND11_MODULE(_libgtracr, M) {
 
     return py::make_tuple(arr, params);
   }, py::arg("data_dir"), py::arg("decimal_year"));
+
+  // Bind BatchGMRCParams struct.
+  py::class_<BatchGMRCParams>(M, "BatchGMRCParams", py::module_local())
+      .def(py::init<>())
+      .def_readwrite("latitude",            &BatchGMRCParams::latitude)
+      .def_readwrite("longitude",           &BatchGMRCParams::longitude)
+      .def_readwrite("detector_alt",        &BatchGMRCParams::detector_alt)
+      .def_readwrite("particle_alt",        &BatchGMRCParams::particle_alt)
+      .def_readwrite("escape_radius",       &BatchGMRCParams::escape_radius)
+      .def_readwrite("charge",              &BatchGMRCParams::charge)
+      .def_readwrite("mass",                &BatchGMRCParams::mass)
+      .def_readwrite("min_rigidity",        &BatchGMRCParams::min_rigidity)
+      .def_readwrite("max_rigidity",        &BatchGMRCParams::max_rigidity)
+      .def_readwrite("delta_rigidity",      &BatchGMRCParams::delta_rigidity)
+      .def_readwrite("dt",                  &BatchGMRCParams::dt)
+      .def_readwrite("max_time",            &BatchGMRCParams::max_time)
+      .def_readwrite("solver_type",         &BatchGMRCParams::solver_type)
+      .def_readwrite("atol",                &BatchGMRCParams::atol)
+      .def_readwrite("rtol",                &BatchGMRCParams::rtol)
+      .def_readwrite("n_samples",           &BatchGMRCParams::n_samples)
+      .def_readwrite("n_threads",           &BatchGMRCParams::n_threads)
+      .def_readwrite("max_attempts_factor", &BatchGMRCParams::max_attempts_factor)
+      .def_readwrite("base_seed",           &BatchGMRCParams::base_seed);
+
+  // Bind batch_gmrc_evaluate: takes numpy table, TableParams, igrf_params, BatchGMRCParams.
+  // Returns (zenith, azimuth, rcutoff) as numpy arrays.
+  M.def("batch_gmrc_evaluate",
+    [](py::array_t<float, py::array::c_style | py::array::forcecast> shared_table,
+       const TableParams& table_params,
+       const std::pair<std::string, double>& igrf_params,
+       const BatchGMRCParams& params) {
+
+      const float* tbl_ptr = shared_table.data();
+
+      BatchGMRCResult result;
+      {
+        py::gil_scoped_release release;
+        result = batch_gmrc_evaluate(tbl_ptr, table_params, igrf_params, params);
+      }
+
+      // Convert to numpy arrays via zero-copy capsules.
+      auto make_array = [](std::vector<double>&& vec) -> py::array_t<double> {
+        auto* data = new std::vector<double>(std::move(vec));
+        py::capsule free_when_done(data, [](void* p) {
+          delete static_cast<std::vector<double>*>(p);
+        });
+        return py::array_t<double>(
+            {static_cast<py::ssize_t>(data->size())},
+            data->data(),
+            free_when_done);
+      };
+
+      return py::make_tuple(
+          make_array(std::move(result.zenith)),
+          make_array(std::move(result.azimuth)),
+          make_array(std::move(result.rcutoff)),
+          result.total_trajectories);
+    },
+    py::arg("shared_table"),
+    py::arg("table_params"),
+    py::arg("igrf_params"),
+    py::arg("params")
+  );
 
   py::class_<TrajectoryTracer>(M, "TrajectoryTracer", py::module_local())
       .def(py::init<>())
@@ -108,6 +172,9 @@ PYBIND11_MODULE(_libgtracr, M) {
            &TrajectoryTracer::evaluate_and_get_trajectory)
       .def("find_cutoff_rigidity",
            &TrajectoryTracer::find_cutoff_rigidity,
+           py::call_guard<py::gil_scoped_release>())
+      .def("find_cutoff_rigidity_bisect",
+           &TrajectoryTracer::find_cutoff_rigidity_bisect,
            py::call_guard<py::gil_scoped_release>());
 
   py::class_<MagneticField>(M, "MagneticField", py::module_local())

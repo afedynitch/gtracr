@@ -9,6 +9,7 @@ py.extension_module(
   '_libgtracr',
   sources: [
     'src/TrajectoryTracer.cpp',
+    'src/BatchGMRC.cpp',
     'src/igrf.cpp',
     'src/pybind11_wrapper.cpp',
     'gpu/igrf_table.cpp',

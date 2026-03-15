@@ -387,59 +387,44 @@ def plot_gmrc_heatmap(gmrc_grids,
                       show_plot=False,
                       plotdir_path=PLOT_DIR):
     '''
-    Plot the heatmap of the geomagnetic rigidity cutoffs at the specified location and type of particle that the cosmic ray constitutes of. Currently only supports matplotlib.
+    Plot the heatmap of the geomagnetic rigidity cutoffs at the specified
+    location and particle type.
+
+    Works with both the legacy ``interpolate_results`` output (irregularly
+    spaced grids fed to ``imshow``) and the new ``bin_results`` output
+    (regular bin-centre arrays fed to ``pcolormesh`` + ``contour``).
 
     Parameters
     ----------
-    - gmrc_grids : tuplpe(np.array(float))
-        An array that consists of the azimuthal and zenith components of the particle trajectory and its corresponding interpolated rigidity cutoff in the following order: (azimuth, zenith, rigidity cutoff)
+    - gmrc_grids : tuple(np.array(float))
+        (azimuth_grid, zenith_grid, rcutoff_grid)
 
     - rigidity_list : np.array(float)
-        The list of rigidities in which each Monte Carlo iteration had evaluated the rigidity cutoff for. Required to determine colorbar limits and contour levels.
+        Rigidities evaluated in the MC (for colorbar limits / contour levels).
 
-    - locname : str
-        The name of the detector location.
-
-    - plabel : str
-        The label of the particle that constitutes the cosmic ray. 
-
+    - locname, plabel, bfield_type : str
     - show_plot : bool
-        Decides to choose to show the generated plot or not. If True, presents the plot in a GUI window.
-
     - plotdir_path : str
-        The path to the directory in which the plots are stored in. Default is set to a directory `gtracr_plots` placed in parallel with the root directory.
-
     '''
 
     (azimuth_grid, zenith_grid, rcutoff_grid) = gmrc_grids
+    vmin, vmax = np.min(rigidity_list), np.max(rigidity_list)
 
-    # plot the contour plot
-    # we use imshow to create a mock filled contour plot
-    # and plot contour lines over the imshow plot
     fig, ax = plt.subplots(figsize=(12, 6), constrained_layout=True)
 
-    image = ax.imshow(rcutoff_grid,
-                      extent=[-2.5, 362.5, -2.5, 182.5],
-                      origin='upper',
-                      cmap="RdBu_r",
-                      interpolation="bilinear",
-                      aspect="auto",
-                      vmin=np.min(rigidity_list),
-                      vmax=np.max(rigidity_list),
-                      alpha=1.)
-    ax.axis('image')
+    # pcolormesh handles NaN bins gracefully (transparent), and works
+    # directly with bin-centre arrays from bin_results().
+    mesh = ax.pcolormesh(azimuth_grid, zenith_grid, rcutoff_grid,
+                         cmap="RdBu_r", vmin=vmin, vmax=vmax,
+                         shading="nearest")
 
-    ax.contour(azimuth_grid,
-               zenith_grid,
-               rcutoff_grid,
-               colors="k",
-               linewidths=0.5,
-               levels=int(4 * len(rigidity_list) / 6),
-               alpha=1.)
+    # Contour lines over the heatmap.  Mask NaN so contour doesn't choke.
+    masked_grid = np.ma.masked_invalid(rcutoff_grid)
+    nlevels = max(4, int(4 * len(rigidity_list) / 6))
+    ax.contour(azimuth_grid, zenith_grid, masked_grid,
+               colors="k", linewidths=0.5, levels=nlevels)
 
-    # shrink parameter should change accordingly to
-    # figsize (trial and error for now...)
-    cbar = fig.colorbar(image, ax=ax, shrink=0.8)
+    cbar = fig.colorbar(mesh, ax=ax, shrink=0.8)
     cbar.ax.set_ylabel("Rigidity [GV]")
 
     # ylim from 180 to 0 to follow convention in Honda 2002 paper
@@ -451,8 +436,6 @@ def plot_gmrc_heatmap(gmrc_grids,
     ax.set_title("Geomagnetic Rigidity Cutoffs at {0} for {1}".format(
         locname, plabel))
 
-    # only save plot is save_plot is True
-    # otherwise show the plot in a GUI window
     if show_plot:
         plt.show()
 
