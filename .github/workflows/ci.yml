@@ -52,6 +52,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
           allow-prereleases: true
 
+      - name: Set up MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ contains(matrix.os, 'arm') && 'arm64' || 'x64' }}
+
       - name: Install dependencies
         run: pip install ninja meson-python pybind11 numpy scipy tqdm pytest-xdist pytest-cov
 
