@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Ruff check
+        run: ruff check gtracr/ examples/
+
+      - name: Ruff format check
+        run: ruff format --check gtracr/ examples/
+
+      - name: Install clang-format
+        run: sudo apt-get install -y clang-format
+
+      - name: clang-format check
+        run: |
+          find gtracr/lib/src gtracr/lib/include gtracr/lib/gpu \
+            -name '*.cpp' -o -name '*.hpp' | \
+            xargs clang-format --dry-run --Werror
+
+  test:
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-13, ubuntu-latest, ubuntu-24.04-arm, windows-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
+
+      - name: Install dependencies
+        run: pip install numpy scipy tqdm pytest pytest-cov
+
+      - name: Build and install
+        run: pip install -e . --no-build-isolation -Csetup-args=-Dnative_arch=false
+
+      - name: Run tests
+        run: pytest gtracr/tests/ -v --no-header

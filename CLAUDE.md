@@ -30,8 +30,47 @@ git submodule update --init
 pip install -e . --no-build-isolation
 ```
 
-**Requirements**: Python ≥ 3.6, a C++14 compiler (GCC, Clang, MSVC), meson ≥ 1.1, ninja,
+**Requirements**: Python ≥ 3.10, a C++14 compiler (GCC, Clang, MSVC), meson ≥ 1.1, ninja,
 and the packages in `requirements.txt` (numpy, scipy, tqdm).
+
+---
+
+## Formatting
+
+**You MUST run formatting before every commit. CI will reject unformatted code.**
+
+### Python (ruff)
+
+Config is in `pyproject.toml` under `[tool.ruff]`.
+
+```bash
+# Lint + auto-fix, then format
+ruff check --fix gtracr/ examples/ && ruff format gtracr/ examples/
+```
+
+### C++ (clang-format)
+
+Config is in `.clang-format` (project root). Vendored headers in `gtracr/lib/extern/` are
+excluded via a local `.clang-format` with `DisableFormat: true`.
+
+```bash
+find gtracr/lib/src gtracr/lib/include gtracr/lib/gpu \
+  -name '*.cpp' -o -name '*.hpp' | xargs clang-format -i
+```
+
+---
+
+## CI
+
+GitHub Actions workflow at `.github/workflows/ci.yml`.
+
+- **lint** job (ubuntu-latest, Python 3.12): runs `ruff check`, `ruff format --check`, and
+  `clang-format --dry-run --Werror` on all C++ files (excluding `extern/`).
+- **test** job (depends on lint): full matrix of 5 runners × 5 Python versions:
+  - Runners: `macos-latest` (arm64), `macos-13` (Intel), `ubuntu-latest` (x86_64),
+    `ubuntu-24.04-arm` (aarch64), `windows-latest` (x86_64)
+  - Python: 3.10, 3.11, 3.12, 3.13, 3.14
+- `-march=native` is disabled in CI via `meson.options` (`-Dnative_arch=false`).
 
 ---
 
