@@ -25,7 +25,7 @@ jobs:
         run: ruff format --check gtracr/ examples/
 
       - name: Install clang-format
-        run: sudo apt-get install -y clang-format
+        run: pip install clang-format==19.1.7
 
       - name: clang-format check
         run: |
