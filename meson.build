@@ -9,7 +9,7 @@ project('gtracr', 'cpp',
 )
 
 py = import('python').find_installation(pure: false)
-pybind11_dep = dependency('pybind11', fallback: ['pybind11', 'pybind11_dep'])
+pybind11_dep = dependency('pybind11')
 
 # Replicate platform-specific compiler flags from setup.py
 cc = meson.get_compiler('cpp')
