@@ -2,9 +2,8 @@
 #ifndef __MAGNETICFIELD_HPP_
 #define __MAGNETICFIELD_HPP_
 
-#include <math.h>
-
 #include <array>
+#include <cmath>
 
 #include "constants.hpp"
 
@@ -34,8 +33,9 @@ class MagneticField {
   */
   inline std::array<double, 3> values(const double& r, const double& theta, const double& phi) {
     std::array<double, 3> val;
-    val[0] = 2. * (constants::RE / r) * (constants::RE / r) * (constants::RE / r) * B0 * cos(theta);
-    val[1] = (constants::RE / r) * (constants::RE / r) * (constants::RE / r) * B0 * sin(theta);
+    val[0] =
+        2. * (constants::RE / r) * (constants::RE / r) * (constants::RE / r) * B0 * std::cos(theta);
+    val[1] = (constants::RE / r) * (constants::RE / r) * (constants::RE / r) * B0 * std::sin(theta);
     val[2] = 0.;
     return val;
   }

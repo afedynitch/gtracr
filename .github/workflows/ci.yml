@@ -38,8 +38,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-26, macos-latest, macos-26-intel, windows-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-26, macos-latest, macos-26-intel, windows-latest, windows-11-arm]
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        exclude:
+          - os: windows-11-arm
+            python-version: "3.10"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -49,11 +52,17 @@ jobs:
           python-version: ${{ matrix.python-version }}
           allow-prereleases: true
 
+      - name: Set up MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ contains(matrix.os, 'arm') && 'arm64' || 'x64' }}
+
       - name: Install dependencies
         run: pip install ninja meson-python pybind11 numpy scipy tqdm pytest-xdist pytest-cov
 
       - name: Build and install
-        run: pip install -e . --no-build-isolation -Csetup-args=-Dnative_arch=false
+        run: pip install . --no-build-isolation -Csetup-args=-Dnative_arch=false
 
       - name: Run tests
         run: pytest tests/ -vv --no-header
