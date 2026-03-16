@@ -1,5 +1,6 @@
 project('gtracr', 'cpp',
   version: '1.0.0',
+  meson_version: '>=1.1',
   default_options: [
     'cpp_std=c++14',
     'optimization=3',
