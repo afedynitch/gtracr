@@ -127,13 +127,15 @@ std::array<double, 3> TrajectoryTracer::bfield_at(double r, double theta,
 
   switch (bfield_type_) {
     case 't': {
-      // Fall back to direct IGRF for r outside the table's valid range so
-      // that RK45 intermediate-stage evaluations beyond 10 RE receive
-      // physically correct, diminishing field values rather than the clamped
-      // boundary value.
+      // Fall back to the dipole field for r outside the table's valid range
+      // so that RK45 intermediate-stage evaluations beyond 10 RE receive
+      // physically correct, diminishing field values without the cost of a
+      // full IGRF spherical-harmonic evaluation.  At r > 10 RE the dipole
+      // term dominates (higher-order multipoles fall off as 1/r^(n+2)),
+      // so this is both fast and accurate where it matters.
       float r_f = static_cast<float>(r);
       if (r_f < table_params_.r_min || r_f > table_params_.r_max) {
-        return igrf_->values(r, theta, phi);
+        return dipole_.values(r, theta, phi);
       }
       const float* tbl = shared_table_ptr_ ? shared_table_ptr_ : table_.data();
       auto b = table_lookup(tbl, table_params_,
