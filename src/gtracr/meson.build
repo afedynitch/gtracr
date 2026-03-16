@@ -14,4 +14,3 @@ install_subdir('data', install_dir: py.get_install_dir() / 'gtracr')
 
 subdir('lib')
 subdir('scripts')
-subdir('tests')

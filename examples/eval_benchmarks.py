@@ -14,7 +14,7 @@ from gtracr.trajectory import Trajectory
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
 
-DATA_DIR = os.path.join(PARENT_DIR, "gtracr", "data")
+DATA_DIR = os.path.join(PARENT_DIR, "src", "gtracr", "data")
 PLOT_DIR = os.path.join(PARENT_DIR, "..", "gtracr_plots")
 
 

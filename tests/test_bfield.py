@@ -13,8 +13,8 @@ import numpy as np
 from gtracr.lib.constants import EARTH_RADIUS
 
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
-PARENT_DIR = os.path.dirname(CURRENT_DIR)
-DATA_DIR = os.path.join(PARENT_DIR, "data")
+PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
+DATA_DIR = os.path.join(PROJECT_ROOT, "src", "gtracr", "data")
 
 # import gauss coefficients from shc file
 CURRENT_YEAR = 2015

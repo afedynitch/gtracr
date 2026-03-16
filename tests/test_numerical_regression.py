@@ -4,13 +4,17 @@ Golden values were captured from the frozen-field RK4 implementation (2026-03).
 These tests verify that optimizations do not change physical results.
 """
 
+import os
+
 import numpy as np
 import pytest
 
 from gtracr.lib._libgtracr import IGRF
 from gtracr.trajectory import Trajectory
 
-DATA_PATH = "gtracr/data/igrf13.json"
+DATA_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "src", "gtracr", "data", "igrf13.json"
+)
 
 # ---------------------------------------------------------------------------
 # B-field component tests

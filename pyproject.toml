@@ -21,6 +21,7 @@ Homepage = 'https://github.com/kwat0308/gtracr'
 
 [tool.pytest.ini_options]
 addopts = "--cov=gtracr --cov-report=term-missing --cov-config=.coveragerc"
+testpaths = ["tests"]
 
 [tool.ruff]
 target-version = "py310"
@@ -38,9 +39,9 @@ quote-style = "double"
 
 [tool.coverage.run]
 omit = [
-    "gtracr/plotting.py",
-    "gtracr/scripts/*",
-    "gtracr/legacy/*",
-    "gtracr/version.py",
-    "gtracr/lib/igrf_utils.py",
+    "src/gtracr/plotting.py",
+    "src/gtracr/scripts/*",
+    "src/gtracr/legacy/*",
+    "src/gtracr/version.py",
+    "src/gtracr/lib/igrf_utils.py",
 ]

@@ -1,7 +1,7 @@
 [run]
 omit =
-    gtracr/plotting.py
-    gtracr/scripts/*
-    gtracr/legacy/*
-    gtracr/version.py
-    gtracr/lib/igrf_utils.py
+    src/gtracr/plotting.py
+    src/gtracr/scripts/*
+    src/gtracr/legacy/*
+    src/gtracr/version.py
+    src/gtracr/lib/igrf_utils.py

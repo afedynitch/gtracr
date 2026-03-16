@@ -19,17 +19,17 @@ jobs:
         run: pip install ruff
 
       - name: Ruff check
-        run: ruff check gtracr/ examples/
+        run: ruff check src/gtracr/ examples/
 
       - name: Ruff format check
-        run: ruff format --check gtracr/ examples/
+        run: ruff format --check src/gtracr/ examples/
 
       - name: Install clang-format
         run: pip install clang-format==19.1.7
 
       - name: clang-format check
         run: |
-          find gtracr/lib/src gtracr/lib/include gtracr/lib/gpu \
+          find src/gtracr/lib/src src/gtracr/lib/include src/gtracr/lib/gpu \
             -name '*.cpp' -o -name '*.hpp' | \
             xargs clang-format --dry-run --Werror
 
@@ -56,4 +56,4 @@ jobs:
         run: pip install -e . --no-build-isolation -Csetup-args=-Dnative_arch=false
 
       - name: Run tests
-        run: pytest gtracr/tests/ -vv --no-header
+        run: pytest tests/ -vv --no-header

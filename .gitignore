@@ -9,5 +9,6 @@ build/
 *.so
 site/
 .coverage
-gtracr/data/igrf_table_*.npy
-gtracr/data/igrf_table_*_params.npz
+src/gtracr/data/igrf_table_*.npy
+src/gtracr/data/igrf_table_*_params.npz
+.coverage.*

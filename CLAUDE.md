@@ -45,16 +45,16 @@ Config is in `pyproject.toml` under `[tool.ruff]`.
 
 ```bash
 # Lint + auto-fix, then format
-ruff check --fix gtracr/ examples/ && ruff format gtracr/ examples/
+ruff check --fix src/gtracr/ examples/ && ruff format src/gtracr/ examples/
 ```
 
 ### C++ (clang-format)
 
-Config is in `.clang-format` (project root). Vendored headers in `gtracr/lib/extern/` are
+Config is in `.clang-format` (project root). Vendored headers in `src/gtracr/lib/extern/` are
 excluded via a local `.clang-format` with `DisableFormat: true`.
 
 ```bash
-find gtracr/lib/src gtracr/lib/include gtracr/lib/gpu \
+find src/gtracr/lib/src src/gtracr/lib/include src/gtracr/lib/gpu \
   -name '*.cpp' -o -name '*.hpp' | xargs clang-format -i
 ```
 
@@ -78,17 +78,17 @@ GitHub Actions workflow at `.github/workflows/ci.yml`.
 
 ```bash
 # Full test suite
-pytest gtracr/tests/ -v
+pytest tests/ -v
 
 # Individual test files
-pytest gtracr/tests/test_trajectories.py -v   # trajectory cases (dipole + IGRF)
-pytest gtracr/tests/test_bfield.py -v          # B-field magnitude tests
-pytest gtracr/tests/test_solvers.py -v         # solver comparison (RK4, Boris, RK45)
-pytest gtracr/tests/test_gmrc.py -v            # GMRC integration tests
-pytest gtracr/tests/test_numerical_regression.py -v  # regression against saved baselines
-pytest gtracr/tests/test_trajectory_coverage.py -v   # broad trajectory coverage
-pytest gtracr/tests/test_particle_location.py -v     # particle/location combinations
-pytest gtracr/tests/test_utils.py -v           # utility function tests
+pytest tests/test_trajectories.py -v   # trajectory cases (dipole + IGRF)
+pytest tests/test_bfield.py -v          # B-field magnitude tests
+pytest tests/test_solvers.py -v         # solver comparison (RK4, Boris, RK45)
+pytest tests/test_gmrc.py -v            # GMRC integration tests
+pytest tests/test_numerical_regression.py -v  # regression against saved baselines
+pytest tests/test_trajectory_coverage.py -v   # broad trajectory coverage
+pytest tests/test_particle_location.py -v     # particle/location combinations
+pytest tests/test_utils.py -v           # utility function tests
 ```
 
 ---
@@ -113,11 +113,11 @@ python examples/eval_benchmarks.py
 ```
 User (Python)
   │
-  ├── Trajectory (gtracr/trajectory.py)
+  ├── Trajectory (src/gtracr/trajectory.py)
   │     Sets up initial conditions (6-vector in spherical geocentric coords),
   │     selects the integrator, calls get_trajectory()
   │
-  ├── GMRC (gtracr/geomagnetic_cutoffs.py)
+  ├── GMRC (src/gtracr/geomagnetic_cutoffs.py)
   │     Monte Carlo over 10,000 random (zenith, azimuth) angles;
   │     for each direction, scans rigidities to find the cutoff.
   │     Two evaluation modes:
@@ -136,12 +136,12 @@ User (Python)
         │
         ├── IGRF (C++)                   ← B-field model (direct)
         │     Degree-13 spherical harmonic expansion (IGRF-13).
-        │     Coefficients loaded from gtracr/data/igrf13.json at construction.
+        │     Coefficients loaded from src/gtracr/data/igrf13.json at construction.
         │
         └── IGRF Table (C++)             ← B-field model (tabulated)
               3D lookup table (64×128×256 grid, 24 MB) with trilinear
               interpolation. Generated from IGRF, cached to disk as .npy.
-              Located in gtracr/lib/gpu/igrf_table.{hpp,cpp}.
+              Located in src/gtracr/lib/gpu/igrf_table.{hpp,cpp}.
 ```
 
 ### Coordinate System
@@ -169,14 +169,14 @@ The 6-vector state is `(r, θ, φ, pᵣ, pθ, pφ)` where `p` is relativistic mo
 | Tabulated IGRF | `'table'` | `igrf_table` (C++) | 3D lookup table (64×128×256), trilinear interpolation; ~7× faster than direct IGRF |
 
 The tabulated field is generated once from the direct IGRF model and cached to disk
-(`gtracr/data/igrf_table_<year>.npy`). It is the default for `GMRC.evaluate()` when
+(`src/gtracr/data/igrf_table_<year>.npy`). It is the default for `GMRC.evaluate()` when
 `bfield_type="table"` and is required for `evaluate_batch()`.
 
 ---
 
 ## Key Classes
 
-### `Trajectory` (`gtracr/trajectory.py`)
+### `Trajectory` (`src/gtracr/trajectory.py`)
 
 ```python
 traj = Trajectory(
@@ -191,7 +191,7 @@ traj.get_trajectory(dt=1e-5, max_time=1.)
 print(traj.particle_escaped)   # True = allowed trajectory
 ```
 
-### `GMRC` (`gtracr/geomagnetic_cutoffs.py`)
+### `GMRC` (`src/gtracr/geomagnetic_cutoffs.py`)
 
 ```python
 # Python-orchestrated evaluation (ProcessPool for igrf/dipole, ThreadPool for table)
@@ -247,7 +247,7 @@ in this regime; use mid-latitude locations (e.g. `location_name="Kamioka"`) or
   Legendre polynomial recursion; generated once, cached to disk as `.npy`
 - **BatchGMRC (C++)**: entire GMRC MC loop in C++ — RNG, coordinate transforms, rigidity scanning,
   `std::thread` parallelism — eliminates all Python overhead per trajectory (~35k traj/s with table+RK45)
-- **Table disk caching**: IGRF tables are cached as `gtracr/data/igrf_table_<year>.npy` + `_params.npz`
+- **Table disk caching**: IGRF tables are cached as `src/gtracr/data/igrf_table_<year>.npy` + `_params.npz`
   to avoid regeneration across runs
 - **Legacy code removed**: `uTrajectoryTracer` (C++), `gtracr/legacy/` Python modules, vendored
   pybind11 headers (now via submodule)
@@ -285,12 +285,12 @@ Key findings:
 
 | File | Description |
 |------|-------------|
-| `gtracr/data/IGRF13.COF` | Original IGRF-13 coefficient file |
-| `gtracr/data/IGRF13.shc` | Spherical harmonic coefficient format |
-| `gtracr/data/igrf13.json` | JSON format used by C++ `IGRF` class at runtime |
-| `gtracr/data/igrf_table_<year>.npy` | Cached 3D IGRF lookup table (auto-generated) |
-| `gtracr/data/igrf_table_<year>_params.npz` | Grid metadata for cached table |
-| `gtracr/data/benchmark_data.pkl` | Saved benchmark/regression baselines |
+| `src/gtracr/data/IGRF13.COF` | Original IGRF-13 coefficient file |
+| `src/gtracr/data/IGRF13.shc` | Spherical harmonic coefficient format |
+| `src/gtracr/data/igrf13.json` | JSON format used by C++ `IGRF` class at runtime |
+| `src/gtracr/data/igrf_table_<year>.npy` | Cached 3D IGRF lookup table (auto-generated) |
+| `src/gtracr/data/igrf_table_<year>_params.npz` | Grid metadata for cached table |
+| `src/gtracr/data/benchmark_data.pkl` | Saved benchmark/regression baselines |
 
 ---
 
@@ -298,7 +298,7 @@ Key findings:
 
 Kamioka, IceCube, SNOLAB, UofA, CTA-North, CTA-South, ORCA, ANTARES, Baikal-GVD, TA.
 
-See `gtracr/utils.py` for coordinates.
+See `src/gtracr/utils.py` for coordinates.
 
 ---
 

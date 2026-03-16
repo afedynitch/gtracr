@@ -227,7 +227,11 @@ def test_igrf_table_field_accuracy():
     from gtracr.lib._libgtracr import TrajectoryTracer as CppTT
 
     data_dir = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "data"
+        os.path.dirname(os.path.realpath(__file__)),
+        "..",
+        "src",
+        "gtracr",
+        "data",
     )
 
     igrf = IGRF(os.path.join(data_dir, "igrf13.json"), 2020.0)

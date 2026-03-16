@@ -308,7 +308,11 @@ def test_ptrajectorytracer_igrf():
     from gtracr.lib.trajectory_tracer import pTrajectoryTracer
 
     data_dir = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "data"
+        os.path.dirname(os.path.realpath(__file__)),
+        "..",
+        "src",
+        "gtracr",
+        "data",
     )
 
     charge_raw = 1

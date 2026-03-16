@@ -43,4 +43,4 @@ else
   message('hipcc not found — building CPU-only (GPU support disabled)')
 endif
 
-subdir('gtracr')
+subdir('src/gtracr')
