@@ -424,19 +424,22 @@ def plot_gmrc_heatmap(
         vmin=vmin,
         vmax=vmax,
         shading="nearest",
+        alpha=0.8,
     )
 
     # Contour lines over the heatmap.  Mask NaN so contour doesn't choke.
     masked_grid = np.ma.masked_invalid(rcutoff_grid)
-    nlevels = max(4, int(4 * len(rigidity_list) / 6))
-    ax.contour(
+    # nlevels = max(4, int(4 * len(rigidity_list) / 6))
+    nlevels = [2.0, 5.0, 10.0, 20.0, 30.0, 40.0, 50.0, 100.0]
+    cs = ax.contour(
         azimuth_grid,
         zenith_grid,
         masked_grid,
         colors="k",
-        linewidths=0.5,
+        linewidths=1.0,
         levels=nlevels,
     )
+    ax.clabel(cs, inline=True, fontsize=10, fmt="%.0f")
 
     cbar = fig.colorbar(mesh, ax=ax, shrink=0.8)
     cbar.ax.set_ylabel("Rigidity [GV]")

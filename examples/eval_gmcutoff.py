@@ -76,6 +76,8 @@ def eval_gmrc(args):
             particle_type=args.particle,
             n_workers=args.n_workers,
             solver=args.solver,
+            min_rigidity=0.5,
+            max_rigidity=80.0,
         )
         _run_gmrc(gmrc, args)
 

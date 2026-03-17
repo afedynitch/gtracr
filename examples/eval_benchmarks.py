@@ -26,9 +26,7 @@ def write_pkl(fpath, datadict):
         pickle.dump(datadict, f, protocol=-1)
 
 
-def get_evaltime(
-    iter_num, initial_variables, bfield_type, use_python=False
-):
+def get_evaltime(iter_num, initial_variables, bfield_type, use_python=False):
     """
     Evaluate iter_num trajectories and return the average wall-clock time.
 
