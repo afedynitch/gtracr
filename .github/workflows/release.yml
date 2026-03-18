@@ -5,6 +5,8 @@ on:
     branches: [master]
   release:
     types: [published]
+  schedule:
+    - cron: "0 1 * * 1"  # 01:00 UTC Monday (09:00 Taipei, UTC+8)
 
 concurrency:
   group: release-${{ github.ref }}
@@ -15,7 +17,7 @@ permissions:
 
 jobs:
   build-wheels:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'schedule'
     strategy:
       fail-fast: false
       matrix:
@@ -53,6 +55,7 @@ jobs:
           CIBW_BUILD: "cp310-* cp311-* cp312-* cp313-* cp314-*"
           CIBW_ARCHS: ${{ matrix.cibw_archs }}
           CIBW_ENABLE: "cpython-prerelease"
+          CIBW_TEST_COMMAND: "pytest {project}/tests -vv --no-header"
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
@@ -61,7 +64,7 @@ jobs:
           path: ./wheelhouse/*.whl
 
   build-sdist:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -75,6 +78,15 @@ jobs:
 
       - name: Build sdist
         run: python -m build --sdist
+
+      - name: Install from sdist
+        run: pip install dist/*.tar.gz -Csetup-args=-Dnative_arch=false
+
+      - name: Install test dependencies
+        run: pip install pytest pytest-cov
+
+      - name: Run tests from sdist
+        run: pytest tests/ -vv --no-header --no-cov
 
       - name: Upload sdist
         uses: actions/upload-artifact@v4
