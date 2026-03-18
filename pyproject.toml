@@ -44,3 +44,9 @@ omit = [
     "src/gtracr/version.py",
     "src/gtracr/bfield/_utils.py",
 ]
+
+[tool.cibuildwheel]
+skip = "*-musllinux_*"
+test-requires = ["pytest", "pytest-cov"]
+test-command = "pytest {project}/tests -vv --no-header --no-cov"
+config-settings = "setup-args=-Dnative_arch=false"
