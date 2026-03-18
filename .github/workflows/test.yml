@@ -104,18 +104,12 @@ jobs:
             cibw_archs: x86_64
           - os: macos-latest
             cibw_archs: arm64
-          - os: windows-latest
-            cibw_archs: AMD64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up MSVC (Windows)
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
-
       - name: Build wheels
-        uses: pypa/cibuildwheel@v2
+        uses: pypa/cibuildwheel@v3
         env:
           CIBW_BUILD: "cp313-*"
           CIBW_ARCHS: ${{ matrix.cibw_archs }}
