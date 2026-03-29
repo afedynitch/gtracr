@@ -101,7 +101,6 @@ def section_accuracy(show_plots):
     )
     r_final_ref = traj_ref.final_sixvector[0]
     th_final_ref = traj_ref.final_sixvector[1]
-    traj_ref.final_sixvector[2]
 
     print("\nReference (RK45, atol=1e-8, rtol=1e-10):")
     print(f"  steps={len(data_ref['t'])}, escaped={traj_ref.particle_escaped}")
