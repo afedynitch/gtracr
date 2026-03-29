@@ -29,9 +29,14 @@ def convert_to_cartesian(trajectory_data):
 
 def plot_trajectory(traj_datadict, title, check_3dtraj=False, show_plot=False):
     convert_to_cartesian(traj_datadict)
-    plot_2dtraj([traj_datadict], plotdir_path=str(PLOT_DIR))
+    plot_2dtraj([traj_datadict], plotdir_path=str(PLOT_DIR), show_plot=show_plot)
     if check_3dtraj:
-        plot_3dtraj([traj_datadict], title_name=title, plotdir_path=str(PLOT_DIR))
+        plot_3dtraj(
+            [traj_datadict],
+            title_name=title,
+            plotdir_path=str(PLOT_DIR),
+            show_plot=show_plot,
+        )
 
 
 def run(args):
