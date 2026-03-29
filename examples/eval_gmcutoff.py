@@ -15,11 +15,6 @@ PLOT_DIR = Path(__file__).parent.parent.parent / "gtracr_plots"
 PLOT_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def export_as_pkl(fpath, ds):
-    with open(fpath, "wb") as f:
-        pickle.dump(ds, f, protocol=-1)
-
-
 def _run_gmrc(gmrc, args):
     """Evaluate gmrc, then plot."""
     plabel = args.particle
